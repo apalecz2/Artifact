@@ -56,7 +56,9 @@ mod tests {
         let path = dir.join("export_xlsx_toowide_test.xlsx");
         let path_str = path.to_string_lossy().to_string();
 
-        let too_wide_row: Vec<String> = (0..(u16::MAX as usize + 1)).map(|i| i.to_string()).collect();
+        let too_wide_row: Vec<String> = (0..(u16::MAX as usize + 1))
+            .map(|i| i.to_string())
+            .collect();
         let rows = vec![too_wide_row];
 
         let result = export_xlsx(rows, path_str);

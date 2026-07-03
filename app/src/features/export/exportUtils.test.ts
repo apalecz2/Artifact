@@ -1,5 +1,13 @@
-import { describe, it, expect } from 'vitest';
-import { toCsv, toHtml, toMarkdown, toPlainText, buildFileStem } from './exportUtils';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { toCsv, toHtml, toMarkdown, toPlainText, buildFileStem, saveWithDialog, saveXlsxWithDialog } from './exportUtils';
+
+const { save } = vi.hoisted(() => ({ save: vi.fn() }));
+const { writeTextFile } = vi.hoisted(() => ({ writeTextFile: vi.fn() }));
+const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
+
+vi.mock('@tauri-apps/plugin-dialog', () => ({ save }));
+vi.mock('@tauri-apps/plugin-fs', () => ({ writeTextFile }));
+vi.mock('@tauri-apps/api/core', () => ({ invoke }));
 
 describe('toCsv (RFC-4180 escaping)', () => {
     it('joins rows with CRLF and cells with commas', () => {
@@ -102,5 +110,51 @@ describe('buildFileStem', () => {
 
     it('falls back to "extraction" when the name sanitizes to empty', () => {
         expect(buildFileStem('!!!.pdf', 0, 1)).toBe('extraction_extract');
+    });
+});
+
+const csvFormat = { ext: 'csv', label: 'CSV files', filters: [{ name: 'CSV', extensions: ['csv'] }] };
+const xlsxFormat = { ext: 'xlsx', label: 'Excel files', filters: [{ name: 'Excel', extensions: ['xlsx'] }] };
+
+describe('saveWithDialog', () => {
+    beforeEach(() => vi.clearAllMocks());
+
+    it('opens the dialog with the stem/ext as the default filename and forwards filters', async () => {
+        save.mockResolvedValue('/tmp/report.csv');
+        await saveWithDialog('report', 'a,b', csvFormat);
+        expect(save).toHaveBeenCalledWith({ defaultPath: 'report.csv', filters: csvFormat.filters });
+    });
+
+    it('returns false and never writes when the user cancels', async () => {
+        save.mockResolvedValue(null);
+        const result = await saveWithDialog('report', 'a,b', csvFormat);
+        expect(result).toBe(false);
+        expect(writeTextFile).not.toHaveBeenCalled();
+    });
+
+    it('writes the content to the chosen path and returns true', async () => {
+        save.mockResolvedValue('/tmp/report.csv');
+        const result = await saveWithDialog('report', 'a,b', csvFormat);
+        expect(result).toBe(true);
+        expect(writeTextFile).toHaveBeenCalledWith('/tmp/report.csv', 'a,b');
+    });
+});
+
+describe('saveXlsxWithDialog', () => {
+    beforeEach(() => vi.clearAllMocks());
+
+    it('returns false and never invokes the backend when the user cancels', async () => {
+        save.mockResolvedValue(null);
+        const result = await saveXlsxWithDialog('report', [['a']], xlsxFormat);
+        expect(result).toBe(false);
+        expect(invoke).not.toHaveBeenCalled();
+    });
+
+    it('invokes export_xlsx with the raw rows and chosen path, returns true', async () => {
+        save.mockResolvedValue('/tmp/report.xlsx');
+        const rows = [['Name', 'Age'], ['Al', '30']];
+        const result = await saveXlsxWithDialog('report', rows, xlsxFormat);
+        expect(result).toBe(true);
+        expect(invoke).toHaveBeenCalledWith('export_xlsx', { rows, destPath: '/tmp/report.xlsx' });
     });
 });
