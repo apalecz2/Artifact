@@ -2,17 +2,6 @@
 
 ## Open
 
-### UI / Frontend
-
-1. **Dark-mode screenshots don't render the cell highlights correctly.** The provenance
-   highlight boxes drawn over the source image look wrong (or are missing) when the app is
-   in dark mode while capturing/showing the screenshot.
-
-2. **No in-app indication that results are saved.** After an extraction the output is
-   persisted, but the UI gives no "saved" affordance, so the user can't tell their work is
-   safe. Needs a save-state indicator.
-
-
 
 ### From VM
 
@@ -24,22 +13,31 @@
 ### Misc:
 
 - Fix image zoom issues
-- Add excel export
-
-
-
-
-
-
+- Testing coverage and documentation
+- npm ci from e2e ? doesn't work?
+- test pdfium cargo test 
 
 
 
 
 ### Website:
 - Product preview -- make more like the actual app (use screenshot?)
-- Add excel export support before promising on site
-- Icons to monochrome
 - Lies? Check hallucinations against actual app and ground it
+
+
+
+
+
+
+### What do I need for 1.0.0?
+- app icons to monochrome version
+- monochrome app icon next to name in top left of side bar 
+- proof read all text
+- note on poor quality extractions -- "try fixing the OCR on the left for better results"
+- gray out model selection area & ocr area in settings
+- re running set up(?)
+
+
 
 
 
@@ -49,6 +47,24 @@
 ---
 
 ## Resolved
+
+
+
+
+Added excel export support
+
+**Dark-mode screenshots don't render the cell highlights correctly.** The provenance
+   highlight boxes drawn over the source image look wrong (or are missing) when the app is
+   in dark mode while capturing/showing the screenshot.
+
+**No in-app indication that results are saved.** After an extraction the output is
+   persisted, but the UI gives no "saved" affordance, so the user can't tell their work is
+   safe. Needs a save-state indicator.
+
+
+
+
+
 
 ### Build / Packaging
 

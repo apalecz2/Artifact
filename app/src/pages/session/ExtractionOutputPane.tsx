@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Icon from '../../components/Icon';
 import { OutputCard } from '../../components/OutputCard';
 import { CopyButton } from '../../components/CopyButton';
@@ -31,6 +31,7 @@ interface ExtractionOutputPaneProps {
     selectWord: (wordId: string) => void;
     selectedWordRef: React.RefObject<HTMLSpanElement | null>;
     handleCopyRawText: () => Promise<void> | void;
+    rawTextSaved: boolean;
 
     // Table extraction progress
     isExtracting: boolean;
@@ -61,11 +62,62 @@ interface ExtractionOutputPaneProps {
     onHelp: () => void;
 }
 
+// Reflects true save status, not an optimistic one: `saved` only ever flips to
+// true once the corresponding DB write has actually completed (see rawTextSaved
+// in useDocumentExtraction and the requestTableFormat/DB-load paths in
+// Session.tsx, which never populate table state before persisting). Clicking it
+// opens a small popover clarifying exactly what "saved" means here (on-device,
+// in-app, not yet exported) so it isn't mistaken for a cloud sync or an export.
+function SavedBadge({ saved, subject, note }: { saved: boolean; subject: string; note: string }): React.ReactElement | null {
+    const [open, setOpen] = useState(false);
+    const ref = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        if (!open) return;
+        const handler = (e: MouseEvent) => {
+            if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+        };
+        document.addEventListener('mousedown', handler);
+        return () => document.removeEventListener('mousedown', handler);
+    }, [open]);
+
+    if (!saved) return null;
+
+    return (
+        <div className="relative ml-3 shrink-0" ref={ref}>
+            <button
+                type="button"
+                onClick={() => setOpen(o => !o)}
+                className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-normal transition-colors hover:bg-green-600/10"
+                aria-haspopup="true"
+                aria-expanded={open}
+            >
+                Saved in app
+                <Icon name="check_circle" size={14} fill={1} className="text-green-600" />
+            </button>
+
+            {open && (
+                <div className="absolute left-0 top-full z-50 mt-1 w-64 rounded-xl border border-outline-variant bg-surface p-3 text-xs leading-relaxed text-on-surface-variant shadow-lg">
+                    <button
+                        type="button"
+                        onClick={() => setOpen(false)}
+                        aria-label="Close"
+                        className="float-right ml-2 flex h-5 w-5 items-center justify-center rounded text-on-surface-variant/70 transition-colors hover:bg-surface-variant hover:text-on-surface"
+                    >
+                        <Icon name="close" size={14} />
+                    </button>
+                    {subject} is saved locally in the app on this computer, and not to the cloud. You can close this session and come back to it later without re-processing. {note}
+                </div>
+            )}
+        </div>
+    );
+}
+
 export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.ReactElement {
     const {
         outputView, setOutputView,
         activePage, isDbLoading, showProcessing, processingCancelled,
-        rawLines, selectedWordId, highlightedWordId, setHighlightedWordId, selectWord, selectedWordRef, handleCopyRawText,
+        rawLines, selectedWordId, highlightedWordId, setHighlightedWordId, selectWord, selectedWordRef, handleCopyRawText, rawTextSaved,
         isExtracting, isCancelling, extractionPhase, streamingContent, streamRef, cancelTableFormat,
         provenanceCells, selectedCell, handleCellClick, savedCsv, handleCopyTable, hasTable,
         extractionError, llamaError, truncated, contextOverflow, handleFormatTable,
@@ -143,6 +195,7 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
                         <OutputCard
                             icon="notes"
                             title="Detected text"
+                            titleBadge={<SavedBadge saved={rawTextSaved} subject="This detected text" note="You can copy it to paste elsewhere." />}
                             fill
                             bodyClassName="space-y-2 px-5 py-4 font-body-md text-on-surface leading-relaxed"
                             action={<CopyButton onCopy={handleCopyRawText} />}
@@ -240,6 +293,7 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
                             <OutputCard
                                 icon="table"
                                 title="AI Output"
+                                titleBadge={<SavedBadge saved subject="This formatted table" note="You can export it below." />}
                                 fill
                                 action={<CopyButton onCopy={handleCopyTable} />}
                                 subheader={
@@ -277,7 +331,7 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
                                 const headers = rows[0] ?? [];
                                 const dataRows = rows.slice(1);
                                 return (
-                                    <OutputCard icon="table" title="AI Output" fill action={<CopyButton onCopy={handleCopyTable} />}>
+                                    <OutputCard icon="table" title="AI Output" titleBadge={<SavedBadge saved subject="This formatted table" note="You can export it below." />} fill action={<CopyButton onCopy={handleCopyTable} />}>
                                         {rows.length > 1 ? (
                                             <div className="overflow-x-auto">
                                                 <table className="w-full border-collapse text-sm">

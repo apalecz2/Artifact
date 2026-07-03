@@ -38,7 +38,8 @@ function SessionContent(): React.ReactElement {
         cancel: cancelProcessing,
         addWord,
         editWord,
-        deleteWord
+        deleteWord,
+        rawTextSaved
     } = useDocumentExtraction(id, activePageIndex);
 
     const {
@@ -307,6 +308,7 @@ function SessionContent(): React.ReactElement {
                     selectWord={selectWord}
                     selectedWordRef={selectedWordRef}
                     handleCopyRawText={handleCopyRawText}
+                    rawTextSaved={rawTextSaved}
                     isExtracting={isExtracting}
                     isCancelling={isCancelling}
                     extractionPhase={extractionPhase}

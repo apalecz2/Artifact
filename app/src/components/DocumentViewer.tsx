@@ -369,6 +369,7 @@ const DocumentViewer = forwardRef<DocumentViewerHandle, DocumentViewerProps>(fun
                     ref={imgRef}
                     src={fileUrl}
                     alt="Document"
+                    crossOrigin="anonymous"
                     onLoad={handleImageLoad}
                     onError={onLoadError}
                     // Render at the image's intrinsic size; the transform scale handles

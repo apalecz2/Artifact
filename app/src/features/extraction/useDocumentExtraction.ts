@@ -19,6 +19,11 @@ export function useDocumentExtraction(sessionId: string | undefined, activePageI
     const [cancelled, setCancelled] = useState(false);
     const [progress, setProgress] = useState<ProcessProgress | null>(null);
     const [retryToken, setRetryToken] = useState(0);
+    // True once the in-memory OCR words match what's persisted in document_pages.
+    // Flips false the instant a word edit updates local state, and back to true only
+    // after the DB write actually completes — surfaced in the UI as a real save status,
+    // not an optimistic one.
+    const [rawTextSaved, setRawTextSaved] = useState(false);
     const hasProcessed = useRef(false);
     // Set by retry() to bypass the page cache and re-run OCR from the source file.
     const forceReprocess = useRef(false);
@@ -62,6 +67,7 @@ export function useDocumentExtraction(sessionId: string | undefined, activePageI
                         words: JSON.parse(page.words_json)
                     }));
                     setExtractionResult({ session_id: sessionId, pages: restoredPages });
+                    setRawTextSaved(true);
                     return;
                 }
 
@@ -104,6 +110,7 @@ export function useDocumentExtraction(sessionId: string | undefined, activePageI
                 }
 
                 setExtractionResult(rustResult);
+                setRawTextSaved(true);
 
             } catch (err) {
                 // A cancel already moved the UI to its neutral cancelled state, so
@@ -170,6 +177,7 @@ export function useDocumentExtraction(sessionId: string | undefined, activePageI
         const newPages = [...extractionResult.pages];
         newPages[activePageIndex] = updatedPage;
         setExtractionResult({ ...extractionResult, pages: newPages });
+        setRawTextSaved(false);
 
         try {
             const db = await getDb();
@@ -180,6 +188,7 @@ export function useDocumentExtraction(sessionId: string | undefined, activePageI
             // Editing OCR words is meaningful activity — keep the session's last-updated
             // time (used by "Recent"/Search ordering) in sync with the edit.
             await db.execute('UPDATE sessions SET updated_at = CURRENT_TIMESTAMP WHERE id = $1', [sessionId]);
+            setRawTextSaved(true);
         } catch (err) {
             console.error("Failed to update db:", err);
         }
@@ -227,5 +236,5 @@ export function useDocumentExtraction(sessionId: string | undefined, activePageI
         ? convertFileSrc(extractionResult.pages[activePageIndex].image_path)
         : null;
 
-    return { extractionResult, fileUrl, isLoading, error, cancelled, progress, retry, cancel, addWord, editWord, deleteWord };
+    return { extractionResult, fileUrl, isLoading, error, cancelled, progress, retry, cancel, addWord, editWord, deleteWord, rawTextSaved };
 }

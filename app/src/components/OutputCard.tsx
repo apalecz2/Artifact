@@ -4,9 +4,11 @@ import Icon from './Icon';
 // Shared shell for an extraction output (raw text, formatted table): a bordered
 // surface with a labeled header and an optional header action, so each output reads
 // as a deliberate result rather than loose content on the pane.
-export function OutputCard({ icon, title, action, subheader, fill = false, bodyClassName = 'px-5 py-4', children }: {
+export function OutputCard({ icon, title, titleBadge, action, subheader, fill = false, bodyClassName = 'px-5 py-4', children }: {
     icon: string;
     title: string;
+    /** Small status indicator rendered right after the title (e.g. a "Saved" checkmark). */
+    titleBadge?: React.ReactNode;
     action?: React.ReactNode;
     /** Secondary header content (e.g. a legend), rendered below the title row. */
     subheader?: React.ReactNode;
@@ -23,6 +25,7 @@ export function OutputCard({ icon, title, action, subheader, fill = false, bodyC
                     <div className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-on-surface-variant">
                         <Icon name={icon} size={18} />
                         <span className="truncate">{title}</span>
+                        {titleBadge}
                     </div>
                     {action}
                 </div>
