@@ -74,11 +74,67 @@
 	--text-mono-data--line-height: 1.4;
 
 	--animate-fade-in: fade-in 0.2s ease-out both;
+	--animate-blob-fade: blob-fade 26s ease-in-out infinite;
 }
 
 @keyframes fade-in {
 	from { opacity: 0; }
 	to { opacity: 1; }
+}
+
+/* Ambient background blobs (App.tsx AmbientBlobs) — a soft, slow fade in/out
+   in place (no drift). --blob-peak (set per instance) and --blob-boost (a
+   dark-mode multiplier, since light grid lines on a near-black background
+   otherwise read as too faint) combine to set the brightest point of every
+   blob, kept low enough that text above it always stays clearly readable. */
+@keyframes blob-fade {
+	0%, 100% { opacity: 0; }
+	40% { opacity: calc(var(--blob-peak, 0.14) * var(--blob-boost, 1)); }
+	70% { opacity: calc(var(--blob-peak, 0.14) * var(--blob-boost, 1) * 0.45); }
+}
+
+/* A patch of the minimalistic grid, monochrome via --primary (flips with the
+   .dark class), revealed only inside a soft circular mask so it feathers out
+   at the blob's edge instead of ending in a hard line. No blur is applied
+   here — the fade comes from the mask, so the grid itself stays crisp.
+   background-attachment: fixed anchors the pattern to the viewport instead of
+   each element's own box, so every blob (ambient or cursor-tracking) samples
+   the exact same grid phase and they all line up with each other. */
+.ambient-grid-blob {
+	position: absolute;
+	background-image:
+		linear-gradient(to right, var(--primary) 1px, transparent 1px),
+		linear-gradient(to bottom, var(--primary) 1px, transparent 1px);
+	background-size: 32px 32px;
+	background-attachment: fixed;
+	mask-image: radial-gradient(circle closest-side, #000 0%, #000 30%, transparent 100%);
+	-webkit-mask-image: radial-gradient(circle closest-side, #000 0%, #000 30%, transparent 100%);
+}
+
+/* The cursor-tracking blob (App.tsx CursorGridBlob) covers the whole viewport
+   and never moves — moving the mask *window* instead of the element means the
+   grid lines themselves stay perfectly still and only the visible patch
+   changes. (A moving/transformed element with background-attachment: fixed
+   would fight itself: a transform makes the element its own containing
+   block, which breaks the fixed attachment and drags the grid along with the
+   cursor — this sidesteps that entirely.) No transition on the mask position
+   — it must track the cursor 1:1, not trail behind it. */
+.cursor-grid-blob {
+	position: fixed;
+	inset: 0;
+	opacity: 0;
+	transition: opacity 0.4s ease;
+	mask-repeat: no-repeat;
+	-webkit-mask-repeat: no-repeat;
+	mask-size: var(--cursor-size, 320px) var(--cursor-size, 320px);
+	-webkit-mask-size: var(--cursor-size, 320px) var(--cursor-size, 320px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.animate-blob-fade {
+		animation: none;
+		display: none;
+	}
 }
 
 :root {
@@ -113,6 +169,8 @@
 	--trust-high: #1f7a4d;
 	--trust-medium: #b8860b;
 	--trust-low: #ba1a1a;
+
+	--blob-boost: 1;
 }
 
 html.dark {
@@ -147,6 +205,10 @@ html.dark {
 	--trust-high: #4ade80;
 	--trust-medium: #e0b341;
 	--trust-low: #ffb4ab;
+
+	/* Light grid lines read as fainter than dark ones at the same opacity
+	   against this near-black background, so boost dark mode to compensate. */
+	--blob-boost: 1.5;
 }
 
 @layer base {

@@ -342,6 +342,154 @@ function DownloadCard({
     );
 }
 
+/* ── Ambient background ──────────────────────────────────────────────────── */
+
+type Blob = { top: number; left: number; size: number; duration: number; delay: number; peak: number };
+
+/** Randomized once per page load so blobs land in different spots each visit.
+ * Positions come from a grid of cells covering the full page (rows down the
+ * page, columns across it) with each blob centred in its cell and jittered.
+ *
+ * The plain grid alone banded blobs into fixed vertical columns: with one blob
+ * per cell, every column ended up with a blob at each row height, so they read
+ * as stacks marching straight down the page (the jitter was too small next to
+ * the blob size to hide it). To break that, every *row* gets its own random
+ * horizontal phase, sliding the whole row sideways — so no two rows share a
+ * vertical band and the columns dissolve, while blobs stay evenly spaced
+ * across each row. left/top are the blob *centre* (see AmbientBlobs for why
+ * that matters and how it's offset). Mobile gets fewer, smaller blobs and only
+ * two columns so the backdrop doesn't feel cluttered on a small screen. */
+function useRandomBlobs(): Blob[] {
+    return React.useState<Blob[]>(() => {
+        const mobile = window.matchMedia('(max-width: 640px)').matches;
+        const count = mobile ? 4 : 9;
+        const cols = mobile ? 2 : 3;
+        const rows = Math.ceil(count / cols);
+        const [minSize, sizeRange] = mobile ? [160, 100] : [260, 220];
+        const colWidth = 100 / cols;
+        const rowHeight = 100 / rows;
+        // One random sideways shift per row (up to ±40% of a column). This is
+        // what staggers the rows out of alignment; per-blob jitter on top adds
+        // the finer randomness.
+        const rowPhase = Array.from({ length: rows }, () => (Math.random() - 0.5) * 0.8 * colWidth);
+        return Array.from({ length: count }, (_, i) => {
+            const row = Math.floor(i / cols);
+            const col = i % cols;
+            return {
+                left: (col + 0.5) * colWidth + rowPhase[row] + (Math.random() - 0.5) * 0.5 * colWidth,
+                top: (row + 0.5) * rowHeight + (Math.random() - 0.5) * 0.6 * rowHeight,
+                size: minSize + Math.random() * sizeRange,
+                duration: 22 + Math.random() * 16,
+                delay: -Math.random() * 24,
+                // Kept low (and capped well under 1) so text laid over a blob at
+                // its brightest moment is still always clearly readable.
+                peak: 0.06 + Math.random() * 0.06,
+            };
+        });
+    })[0];
+}
+
+/** Patches of the minimalistic grid, monochrome (flips with dark mode), that
+ * softly fade in and out at random spots — each one revealed through a soft
+ * circular mask that feathers the grid out at its edge — so the backdrop
+ * reads as alive without drawing the eye or affecting layout.
+ *
+ * top/left place the blob's *centre*, then a negative margin of half its size
+ * pulls it back onto that point. That keeps blobs in the edge columns actually
+ * on screen instead of anchoring their top-left corner near the page edge and
+ * letting the (large) rest of the blob bleed off and get clipped away. A
+ * transform would centre it too, but it must be a margin: a transform makes
+ * the element its own containing block, which breaks background-attachment:
+ * fixed and desyncs the grid phase from the other blobs. */
+function AmbientBlobs(): React.ReactElement {
+    const blobs = useRandomBlobs();
+    return (
+        <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden="true">
+            {blobs.map((b, i) => (
+                <span
+                    key={i}
+                    className="ambient-grid-blob animate-blob-fade"
+                    style={
+                        {
+                            top: `${b.top}%`,
+                            left: `${b.left}%`,
+                            width: b.size,
+                            height: b.size,
+                            marginTop: -b.size / 2,
+                            marginLeft: -b.size / 2,
+                            animationDuration: `${b.duration}s`,
+                            animationDelay: `${b.delay}s`,
+                            '--blob-peak': b.peak,
+                        } as React.CSSProperties
+                    }
+                />
+            ))}
+        </div>
+    );
+}
+
+const CURSOR_BLOB_SIZE = 320;
+
+/** A grid patch that follows the mouse. The element covers the whole
+ * viewport and never moves; only its mask-position shifts, so the grid lines
+ * stay put and just the visible window changes. Mouse coordinates are only
+ * ever written into a ref — the mask-position DOM write happens once per
+ * animation frame (single-flight rAF) so it tracks the cursor as smoothly as
+ * the display can paint, with no React re-renders in between. Skipped
+ * entirely for touch devices (no persistent cursor) and reduced-motion
+ * users. */
+function CursorGridBlob(): React.ReactElement {
+    const ref = React.useRef<HTMLSpanElement>(null);
+
+    React.useEffect(() => {
+        if (
+            !window.matchMedia('(pointer: fine)').matches ||
+            window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        ) {
+            return;
+        }
+        const el = ref.current;
+        if (!el) return;
+
+        const visible = 'calc(var(--blob-peak) * var(--blob-boost, 1))';
+        let frame = 0;
+        let x = 0;
+        let y = 0;
+
+        const applyPosition = () => {
+            frame = 0;
+            const pos = `${x - CURSOR_BLOB_SIZE / 2}px ${y - CURSOR_BLOB_SIZE / 2}px`;
+            el.style.maskPosition = pos;
+            el.style.setProperty('-webkit-mask-position', pos);
+        };
+        const onMove = (e: MouseEvent) => {
+            x = e.clientX;
+            y = e.clientY;
+            el.style.opacity = visible;
+            if (!frame) frame = requestAnimationFrame(applyPosition);
+        };
+        const onLeave = () => {
+            el.style.opacity = '0';
+        };
+        window.addEventListener('mousemove', onMove);
+        document.documentElement.addEventListener('mouseleave', onLeave);
+        return () => {
+            window.removeEventListener('mousemove', onMove);
+            document.documentElement.removeEventListener('mouseleave', onLeave);
+            if (frame) cancelAnimationFrame(frame);
+        };
+    }, []);
+
+    return (
+        <span
+            ref={ref}
+            aria-hidden="true"
+            className="ambient-grid-blob cursor-grid-blob"
+            style={{ '--blob-peak': 0.1, '--cursor-size': `${CURSOR_BLOB_SIZE}px` } as React.CSSProperties}
+        />
+    );
+}
+
 /* ── Page ────────────────────────────────────────────────────────────────── */
 
 export default function App(): React.ReactElement {
@@ -353,6 +501,8 @@ export default function App(): React.ReactElement {
         <div id="top" className="relative bg-surface min-h-screen">
             {/* Atmospheric background — matches the app's Dashboard / About page. */}
             <div className="absolute inset-0 pointer-events-none opacity-[0.03] bg-[radial-gradient(circle_at_top,var(--tw-gradient-stops))] from-primary via-transparent to-transparent" />
+            <AmbientBlobs />
+            <CursorGridBlob />
 
             <div className="relative z-10">
                 <Header />
@@ -660,7 +810,7 @@ export default function App(): React.ReactElement {
                 </main>
 
                 {/* ── Footer ── */}
-                <footer className="border-t border-outline-variant">
+                <footer className="border-t border-outline-variant bg-surface">
                     <div className="max-w-6xl mx-auto px-5 sm:px-8 lg:px-[--spacing-margin-page] py-10 flex flex-col sm:flex-row items-center justify-between gap-4">
                         <div className="flex items-center gap-2 text-on-surface-variant">
                             <AnchorMark className="w-6 h-6 rounded-md" />
