@@ -13,6 +13,9 @@ interface ExportMenuProps {
     disabled?: boolean;
     /** Open the menu above the trigger instead of below (for bottom-anchored toolbars) */
     openUp?: boolean;
+    /** 'primary' marks this as the happy-path finish action (filled, on-brand);
+     *  default is the neutral chrome-button look used elsewhere. */
+    variant?: 'default' | 'primary';
 }
 
 function normalizeRows(
@@ -51,7 +54,7 @@ const FORMAT_CONFIG: Record<ExportFormatKey, TextFormatEntry | BinaryFormatEntry
     txt:  { kind: 'text',   label: 'Plain text', icon: 'text_fields', serialize: toPlainText, saveFormat: { ext: 'txt', label: 'Text files',  filters: [{ name: 'Text', extensions: ['txt']  }] } },
 };
 
-export function ExportMenu({ provenanceCells, savedCsv, fileStem, disabled, openUp }: ExportMenuProps) {
+export function ExportMenu({ provenanceCells, savedCsv, fileStem, disabled, openUp, variant = 'default' }: ExportMenuProps) {
     const [open, setOpen] = useState(false);
     const [copied, setCopied] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
@@ -93,7 +96,11 @@ export function ExportMenu({ provenanceCells, savedCsv, fileStem, disabled, open
             <button
                 onClick={() => setOpen(o => !o)}
                 disabled={disabled || !hasData}
-                className="flex h-9 items-center gap-1 px-3 text-sm bg-surface-variant text-on-surface-variant rounded-lg hover:bg-surface-container-high disabled:opacity-50 transition-colors"
+                className={`flex h-9 items-center gap-1 px-3 text-sm rounded-lg disabled:opacity-50 transition-colors ${
+                    variant === 'primary'
+                        ? 'bg-primary text-on-primary hover:bg-primary/90'
+                        : 'bg-surface-variant text-on-surface-variant hover:bg-surface-container-high'
+                }`}
                 aria-haspopup="true"
                 aria-expanded={open}
             >

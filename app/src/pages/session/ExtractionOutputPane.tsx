@@ -1,7 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Icon from '../../components/Icon';
 import { OutputCard } from '../../components/OutputCard';
 import { CopyButton } from '../../components/CopyButton';
+import { HelpOverlay } from '../../components/HelpOverlay';
 import ProvenanceTable from '../../components/ProvenanceTable';
 import type { SelectedCell } from '../../components/ProvenanceTable';
 import { ExtractionProgress } from '../../features/extraction/ExtractionProgress';
@@ -10,7 +11,9 @@ import { parseCSV } from '../../features/llama/promptUtils';
 import type { ExtractionPhase } from '../../features/llama/useLlamaChat';
 import type { DocumentPageResult, ProvenanceCell } from '../../features/extraction/types';
 import type { LineWord } from '../../features/extraction/types';
-import { HelpIsland } from './sessionToolbar';
+import { useElementBounds } from '../../hooks/useElementBounds';
+import { HelpIsland, iconBtnClass } from './sessionToolbar';
+import { OutputHelp } from './SessionHelp';
 
 interface ExtractionOutputPaneProps {
     // View toggle
@@ -58,8 +61,6 @@ interface ExtractionOutputPaneProps {
 
     // Export
     fileStem: string;
-
-    onHelp: () => void;
 }
 
 // Reflects true save status, not an optimistic one: `saved` only ever flips to
@@ -121,7 +122,7 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
         isExtracting, isCancelling, extractionPhase, streamingContent, streamRef, cancelTableFormat,
         provenanceCells, selectedCell, handleCellClick, savedCsv, handleCopyTable, hasTable,
         extractionError, llamaError, truncated, contextOverflow, handleFormatTable,
-        fileStem, onHelp,
+        fileStem,
     } = props;
 
     // A page with no OCR words can't be formatted (a blank page, or one whose
@@ -129,6 +130,36 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
     // "Format as Table" entry points on this so the button is never a silent no-op
     // (handleFormatTable bails on a page with no words/fileUrl).
     const hasWords = (activePage?.words?.length ?? 0) > 0;
+
+    // Help overlay: centered over this pane's own footprint (via its bounds),
+    // not the whole app window — see useElementBounds/HelpOverlay.
+    const [helpOpen, setHelpOpen] = useState(false);
+    const [paneRef, helpBounds] = useElementBounds<HTMLDivElement>(helpOpen);
+
+    // Cells worth a second look, in reading order — turns proofreading from a
+    // scan of the whole table into a worklist (see the toolbar's review nav).
+    const flaggedCells = useMemo(
+        () => (provenanceCells ?? [])
+            .flat()
+            .filter(cell => cell.confidence.trust !== 'high')
+            .sort((a, b) => a.rowIndex - b.rowIndex || a.colIndex - b.colIndex),
+        [provenanceCells]
+    );
+
+    const currentFlagIndex = selectedCell
+        ? flaggedCells.findIndex(c => c.rowIndex === selectedCell.rowIndex && c.colIndex === selectedCell.colIndex)
+        : -1;
+
+    // Step to the next/previous flagged cell, wrapping around. If the current
+    // selection isn't a flagged cell (or nothing's selected), start from the
+    // first (next) or last (previous) one.
+    const goToFlag = (delta: 1 | -1) => {
+        if (flaggedCells.length === 0) return;
+        const nextIndex = currentFlagIndex === -1
+            ? (delta > 0 ? 0 : flaggedCells.length - 1)
+            : (currentFlagIndex + delta + flaggedCells.length) % flaggedCells.length;
+        handleCellClick(flaggedCells[nextIndex]);
+    };
 
     return (
         <>
@@ -159,7 +190,7 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
             {/* No surrounding card here: the output/content (e.g. the AI output
                 card) sits directly on the pane. This wrapper only provides the
                 scroll area and the positioning context for the floating toolbar. */}
-            <div className="relative flex-1 overflow-hidden">
+            <div ref={paneRef} className="relative flex-1 overflow-hidden">
                 <div className="h-full overflow-auto pb-24">
                 {isDbLoading ? (
                     showProcessing ? (
@@ -424,16 +455,40 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
                                 )}
                                 {outputView === 'table' && !isExtracting && (
                                     <>
+                                        {flaggedCells.length > 0 && (
+                                            <div className="flex shrink-0 items-center gap-1 pr-2 mr-1 border-r border-outline-variant">
+                                                <button
+                                                    aria-label="Previous cell to review"
+                                                    onClick={() => goToFlag(-1)}
+                                                    className={iconBtnClass}
+                                                    type="button"
+                                                >
+                                                    <Icon name="chevron_left" size={18} />
+                                                </button>
+                                                <span className="whitespace-nowrap px-1 text-sm text-on-surface-variant">
+                                                    {flaggedCells.length} cell{flaggedCells.length === 1 ? '' : 's'} to review
+                                                </span>
+                                                <button
+                                                    aria-label="Next cell to review"
+                                                    onClick={() => goToFlag(1)}
+                                                    className={iconBtnClass}
+                                                    type="button"
+                                                >
+                                                    <Icon name="chevron_right" size={18} />
+                                                </button>
+                                            </div>
+                                        )}
                                         <ExportMenu
                                             provenanceCells={provenanceCells}
                                             savedCsv={savedCsv}
                                             fileStem={fileStem}
                                             openUp
+                                            variant="primary"
                                         />
                                         <button
                                             onClick={() => handleFormatTable()}
                                             disabled={isExtracting}
-                                            className="flex h-9 shrink-0 items-center px-4 text-sm bg-surface-variant text-on-surface-variant rounded-lg hover:bg-surface-container-high disabled:opacity-50 transition-colors"
+                                            className="flex h-9 shrink-0 items-center px-4 text-sm border border-outline-variant text-on-surface-variant rounded-lg hover:bg-surface-variant disabled:opacity-50 transition-colors"
                                         >
                                             Re-extract
                                         </button>
@@ -443,10 +498,16 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
                         )}
 
                         {/* Second island: help for the extracted-text / table side. */}
-                        <HelpIsland onClick={onHelp} label="About the extracted text and table tools" />
+                        <HelpIsland onClick={() => setHelpOpen(true)} label="About the extracted text and table tools" />
                     </div>
                 )}
             </div>
+
+            {helpOpen && (
+                <HelpOverlay title="Extracted Text & Table" onClose={() => setHelpOpen(false)} bounds={helpBounds}>
+                    <OutputHelp />
+                </HelpOverlay>
+            )}
         </>
     );
 }

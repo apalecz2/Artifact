@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams } from 'react-router';
 import type { DocumentViewerHandle } from '../components/DocumentViewer';
 import type { SelectedCell } from '../components/ProvenanceTable';
-import { HelpOverlay } from '../components/HelpOverlay';
 import { parseCSV } from '../features/llama/promptUtils';
 import { getDb } from '../lib/db';
 
@@ -18,14 +17,11 @@ import { buildFileStem } from '../features/export/exportUtils';
 import { copyTableToClipboard } from '../utils/clipboard';
 import { SourceDocumentPane } from './session/SourceDocumentPane';
 import { ExtractionOutputPane } from './session/ExtractionOutputPane';
-import { SourceHelp, OutputHelp } from './session/SessionHelp';
 
 function SessionContent(): React.ReactElement {
     const { id } = useParams<{ id: string }>();
     const [activePageIndex, setActivePageIndex] = useState(0);
     const [sourceFileName, setSourceFileName] = useState<string | null>(null);
-    // Which side's help overlay is open, if any.
-    const [helpOpen, setHelpOpen] = useState<null | 'source' | 'output'>(null);
 
     const {
         extractionResult,
@@ -78,6 +74,9 @@ function SessionContent(): React.ReactElement {
     const [editingState, setEditingState] = useState<{ box?: BoundingBox | null, id?: string, text?: string } | null>(null);
 
     const [activeTool, setActiveTool] = useState<'draw' | 'pan'>('draw');
+    // Which OCR regions are drawn on the source image: 'all' (every region),
+    // 'issues' (only lower-confidence ones), or 'none' (overlay hidden).
+    const [overlayMode, setOverlayMode] = useState<'all' | 'issues' | 'none'>('all');
     const [viewTransform, setViewTransform] = useState({ scale: 1, x: 0, y: 0 });
     const [minZoom, setMinZoom] = useState(0.5);
     const viewerRef = useRef<DocumentViewerHandle>(null);
@@ -218,7 +217,13 @@ function SessionContent(): React.ReactElement {
         }
     };
 
-    const handleCellClick = (cell: ProvenanceCell) => {
+    // `autoZoom` is suppressed when the click originated on the image itself
+    // (via handleWordClick below) — the box is already visible there, so
+    // re-centering/zooming the viewport under the cursor would just be
+    // disorienting. It's only useful when the selection comes from the table
+    // or raw-text list, where the source box may be off-screen or too small.
+    const handleCellClick = (cell: ProvenanceCell, opts: { autoZoom?: boolean } = {}) => {
+        const { autoZoom = true } = opts;
         if (!activePage) return;
         setSelectedWordId(null);
         setSelectedCell({ rowIndex: cell.rowIndex, colIndex: cell.colIndex });
@@ -226,32 +231,36 @@ function SessionContent(): React.ReactElement {
         const sanitized = sanitizeWordsForProvenance(activePage.words, activePage.natural_height);
         const box = getCellSourceBox(cell, sanitized);
         setProvenanceHighlightBox(box);
+        if (box && autoZoom) viewerRef.current?.zoomToBox(box);
     };
 
     // Word-level selection links the raw-text view and the image 1:1: bold the
     // word in the text, outline that single word's box on the image.
-    const selectWord = (wordId: string) => {
+    const selectWord = (wordId: string, opts: { autoZoom?: boolean } = {}) => {
+        const { autoZoom = true } = opts;
         const word = activePage?.words.find(w => w.id === wordId);
         if (!word) return;
         setSelectedCell(null);
         setSelectedWordId(wordId);
         setProvenanceHighlightBox(word.box_coords);
+        if (autoZoom) viewerRef.current?.zoomToBox(word.box_coords);
     };
 
     // Clicking a word on the image links back to whichever right-pane view is
     // showing: in raw mode it selects the matching word, in table mode it selects
     // the cell the word feeds (wordIds are stable UUIDs, so a membership test finds
     // it; routing through handleCellClick keeps highlight box and selection in sync).
+    // autoZoom is off here — the clicked word is already visible on the image.
     const handleWordClick = (wordId: string) => {
         if (outputView === 'raw') {
-            selectWord(wordId);
+            selectWord(wordId, { autoZoom: false });
             return;
         }
         if (!provenanceCells) return;
         for (const row of provenanceCells) {
             const cell = row.find(c => c.wordIds.includes(wordId));
             if (cell) {
-                handleCellClick(cell);
+                handleCellClick(cell, { autoZoom: false });
                 return;
             }
         }
@@ -285,63 +294,49 @@ function SessionContent(): React.ReactElement {
                 setViewTransform={setViewTransform}
                 minZoom={minZoom}
                 setMinZoom={setMinZoom}
+                overlayMode={overlayMode}
+                setOverlayMode={setOverlayMode}
                 totalPages={totalPages}
                 activePageIndex={activePageIndex}
                 goToPage={goToPage}
                 pageInputValue={pageInputValue}
                 setPageInputValue={setPageInputValue}
-                onHelp={() => setHelpOpen('source')}
             />
 
-            <>
-                <ExtractionOutputPane
-                    outputView={outputView}
-                    setOutputView={setOutputView}
-                    activePage={activePage}
-                    isDbLoading={isDbLoading}
-                    showProcessing={showProcessing}
-                    processingCancelled={processingCancelled}
-                    rawLines={rawLines}
-                    selectedWordId={selectedWordId}
-                    highlightedWordId={highlightedWordId}
-                    setHighlightedWordId={setHighlightedWordId}
-                    selectWord={selectWord}
-                    selectedWordRef={selectedWordRef}
-                    handleCopyRawText={handleCopyRawText}
-                    rawTextSaved={rawTextSaved}
-                    isExtracting={isExtracting}
-                    isCancelling={isCancelling}
-                    extractionPhase={extractionPhase}
-                    streamingContent={streamingContent}
-                    streamRef={streamRef}
-                    cancelTableFormat={cancelTableFormat}
-                    provenanceCells={provenanceCells}
-                    selectedCell={selectedCell}
-                    handleCellClick={handleCellClick}
-                    savedCsv={savedCsv}
-                    handleCopyTable={handleCopyTable}
-                    hasTable={hasTable}
-                    extractionError={extractionError}
-                    llamaError={llamaError}
-                    truncated={truncated}
-                    contextOverflow={contextOverflow}
-                    handleFormatTable={handleFormatTable}
-                    fileStem={buildFileStem(sourceFileName, activePageIndex, totalPages)}
-                    onHelp={() => setHelpOpen('output')}
-                />
-
-                {/* Help overlays — rendered fixed so they cover the whole window. */}
-                {helpOpen === 'source' && (
-                    <HelpOverlay title="Source Document" onClose={() => setHelpOpen(null)}>
-                        <SourceHelp />
-                    </HelpOverlay>
-                )}
-                {helpOpen === 'output' && (
-                    <HelpOverlay title="Extracted Text & Table" onClose={() => setHelpOpen(null)}>
-                        <OutputHelp />
-                    </HelpOverlay>
-                )}
-            </>
+            <ExtractionOutputPane
+                outputView={outputView}
+                setOutputView={setOutputView}
+                activePage={activePage}
+                isDbLoading={isDbLoading}
+                showProcessing={showProcessing}
+                processingCancelled={processingCancelled}
+                rawLines={rawLines}
+                selectedWordId={selectedWordId}
+                highlightedWordId={highlightedWordId}
+                setHighlightedWordId={setHighlightedWordId}
+                selectWord={selectWord}
+                selectedWordRef={selectedWordRef}
+                handleCopyRawText={handleCopyRawText}
+                rawTextSaved={rawTextSaved}
+                isExtracting={isExtracting}
+                isCancelling={isCancelling}
+                extractionPhase={extractionPhase}
+                streamingContent={streamingContent}
+                streamRef={streamRef}
+                cancelTableFormat={cancelTableFormat}
+                provenanceCells={provenanceCells}
+                selectedCell={selectedCell}
+                handleCellClick={handleCellClick}
+                savedCsv={savedCsv}
+                handleCopyTable={handleCopyTable}
+                hasTable={hasTable}
+                extractionError={extractionError}
+                llamaError={llamaError}
+                truncated={truncated}
+                contextOverflow={contextOverflow}
+                handleFormatTable={handleFormatTable}
+                fileStem={buildFileStem(sourceFileName, activePageIndex, totalPages)}
+            />
         </SplitLayout>
     );
 }

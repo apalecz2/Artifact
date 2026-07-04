@@ -4,6 +4,10 @@ import type { OcrWord, BoundingBox } from '../features/ocr/types';
 export interface DocumentViewerHandle {
     fitToScreen: () => void;
     zoomTo: (scale: number) => void;
+    /** Center the given box in the viewport, zooming in (never out) just enough
+     *  to make it comfortably visible. Used to bring a newly-selected cell's
+     *  source region into view when it's off-screen or too small to read. */
+    zoomToBox: (box: BoundingBox) => void;
 }
 
 // Default lower zoom bound for panes large enough to hold the fitted image. When
@@ -12,6 +16,16 @@ export interface DocumentViewerHandle {
 const MIN_SCALE = 0.5;
 const MAX_SCALE = 4;
 const FIT_INSET = 16; // breathing room around the fitted image, in px
+
+// Word-level confidence at/above this is treated as "high" and, under the
+// 'issues' overlay mode, dimmed to invisible-until-hovered. Mirrors the
+// ocrNorm >= 0.85 "high" threshold in confidence.ts's cellTrust, so the same
+// number means "trustworthy" everywhere in the app.
+const OVERLAY_HIGH_CONFIDENCE = 85;
+
+// Target fraction of the shorter container dimension a zoomed-to box should
+// occupy, so it's clearly readable but keeps surrounding context visible.
+const ZOOM_TO_BOX_TARGET_FRACTION = 0.35;
 
 interface DocumentViewerProps {
     fileUrl: string;
@@ -29,6 +43,10 @@ interface DocumentViewerProps {
     onMinScaleChange?: (minScale: number) => void;
     /** Fired when the source image fails to load (e.g. the file was moved/deleted). */
     onLoadError?: () => void;
+    /** 'all' shows every OCR region at its normal ambient opacity; 'issues' dims
+     *  high-confidence boxes to invisible-until-hovered so only the uncertain
+     *  ones stand out; 'none' hides the overlay entirely. */
+    overlayMode?: 'all' | 'issues' | 'none';
 }
 
 const getConfidenceColor = (confidence: number) => {
@@ -78,6 +96,7 @@ const DocumentViewer = forwardRef<DocumentViewerHandle, DocumentViewerProps>(fun
     provenanceHighlightBox,
     onMinScaleChange,
     onLoadError,
+    overlayMode = 'all',
 }: DocumentViewerProps, ref) {
     const [naturalSize, setNaturalSize] = useState({ width: 0, height: 0 });
     // Whether the loaded document is dark overall, so highlights contrast with it.
@@ -239,7 +258,33 @@ const DocumentViewer = forwardRef<DocumentViewerHandle, DocumentViewerProps>(fun
         });
     }, [setTransform]);
 
-    useImperativeHandle(ref, () => ({ fitToScreen, zoomTo }), [fitToScreen, zoomTo]);
+    // Center `box` in the viewport, zooming in only as much as needed to make it
+    // readable — never zooming out, so a user who's already zoomed in past that
+    // point just gets re-centered instead of yanked back out.
+    const zoomToBox = useCallback((box: BoundingBox) => {
+        const container = containerRef.current;
+        if (!container || box.width <= 0 || box.height <= 0) return;
+        const cw = container.clientWidth;
+        const ch = container.clientHeight;
+
+        const desiredScale = Math.min(
+            (cw * ZOOM_TO_BOX_TARGET_FRACTION) / box.width,
+            (ch * ZOOM_TO_BOX_TARGET_FRACTION) / box.height,
+        );
+
+        setTransform(prev => {
+            const newScale = Math.min(MAX_SCALE, Math.max(prev.scale, desiredScale));
+            const centerX = box.left + box.width / 2;
+            const centerY = box.top + box.height / 2;
+            return {
+                scale: newScale,
+                x: cw / 2 - centerX * newScale,
+                y: ch / 2 - centerY * newScale,
+            };
+        });
+    }, [setTransform]);
+
+    useImperativeHandle(ref, () => ({ fitToScreen, zoomTo, zoomToBox }), [fitToScreen, zoomTo, zoomToBox]);
 
     // A new image (e.g. switching pages) must be re-fitted, so hide it again until
     // its onLoad recomputes the fit. Resetting here — rather than in onLoad — avoids
@@ -397,9 +442,14 @@ const DocumentViewer = forwardRef<DocumentViewerHandle, DocumentViewerProps>(fun
                         onMouseLeave={handleMouseUp}
                         onContextMenu={(e) => e.preventDefault()}
                     >
-                        {words.map((word) => {
+                        {overlayMode !== 'none' && words.map((word) => {
                             const color = getConfidenceColor(word.confidence);
                             const isHighlighted = highlightedWordId === word.id;
+                            // Under the 'issues' mode, a high-confidence box is dimmed to
+                            // fully invisible by default — still there (and interactive) on
+                            // hover — so the ambient heatmap only draws the eye to what's
+                            // actually uncertain.
+                            const isDimmed = overlayMode === 'issues' && word.confidence >= OVERLAY_HIGH_CONFIDENCE;
 
                             return (
                                 <rect
@@ -414,7 +464,9 @@ const DocumentViewer = forwardRef<DocumentViewerHandle, DocumentViewerProps>(fun
                                     }}
                                     className={`pointer-events-auto cursor-pointer transition-all ${isHighlighted
                                             ? 'opacity-80 stroke-[4px]'
-                                            : 'opacity-30 stroke-[2px] hover:opacity-60'
+                                            : isDimmed
+                                                ? 'opacity-0 stroke-[2px] hover:opacity-40'
+                                                : 'opacity-30 stroke-[2px] hover:opacity-60'
                                         }`}
                                     onMouseEnter={() => setHighlightedWordId(word.id)}
                                     onMouseLeave={() => setHighlightedWordId(null)}

@@ -2,13 +2,78 @@ import React from 'react';
 import DocumentViewer from '../../components/DocumentViewer';
 import type { DocumentViewerHandle } from '../../components/DocumentViewer';
 import Icon from '../../components/Icon';
+import { HelpOverlay } from '../../components/HelpOverlay';
 import { WordEditModal } from '../../features/extraction/WordEditModal';
 import type { DocumentPageResult } from '../../features/extraction/types';
 import type { ProcessProgress } from '../../features/extraction/useDocumentExtraction';
 import type { BoundingBox } from '../../features/ocr/types';
+import { useElementBounds } from '../../hooks/useElementBounds';
 import { iconBtnClass, HelpIsland } from './sessionToolbar';
+import { SourceHelp } from './SessionHelp';
 
 type EditingState = { box?: BoundingBox | null; id?: string; text?: string } | null;
+type OverlayMode = 'all' | 'issues' | 'none';
+
+const OVERLAY_MODES: { value: OverlayMode; label: string; description: string }[] = [
+    { value: 'all', label: 'All regions', description: 'Show every detected region, color-coded by confidence' },
+    { value: 'issues', label: 'Issues only', description: 'Dim high-confidence regions so only uncertain ones stand out' },
+    { value: 'none', label: 'No overlay', description: 'Hide the confidence overlay entirely' },
+];
+
+// Dropdown for choosing which OCR-confidence regions are drawn on the source
+// image. A dropdown (rather than a segmented control) scales to a third
+// option without crowding the floating toolbar, and opens upward since this
+// toolbar sits at the bottom of the pane.
+function OverlayModeMenu({ mode, setMode }: { mode: OverlayMode; setMode: (mode: OverlayMode) => void }): React.ReactElement {
+    const [open, setOpen] = React.useState(false);
+    const ref = React.useRef<HTMLDivElement>(null);
+
+    React.useEffect(() => {
+        if (!open) return;
+        const handler = (e: MouseEvent) => {
+            if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+        };
+        document.addEventListener('mousedown', handler);
+        return () => document.removeEventListener('mousedown', handler);
+    }, [open]);
+
+    const current = OVERLAY_MODES.find(m => m.value === mode) ?? OVERLAY_MODES[0];
+
+    return (
+        <div className="relative shrink-0" ref={ref}>
+            <button
+                onClick={() => setOpen(o => !o)}
+                aria-haspopup="true"
+                aria-expanded={open}
+                title="Choose which OCR-confidence regions are shown on the document"
+                className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-surface-variant px-3 text-sm text-on-surface transition-colors shadow-sm hover:bg-surface-container-high"
+            >
+                <Icon name="layers" size={16} />
+                Overlay: {current.label}
+                <Icon name="expand_more" size={14} className="leading-none" />
+            </button>
+
+            {open && (
+                <div className="absolute bottom-full left-0 z-50 mb-1 min-w-64 rounded-xl border border-outline-variant bg-surface py-1 shadow-lg">
+                    {OVERLAY_MODES.map(({ value, label, description }) => (
+                        <button
+                            key={value}
+                            onClick={() => { setMode(value); setOpen(false); }}
+                            aria-pressed={value === mode}
+                            className="flex w-full items-start gap-2 px-4 py-2 text-left text-sm transition-colors hover:bg-surface-variant"
+                        >
+                            <Icon name="check" size={16} className={`mt-0.5 shrink-0 ${value === mode ? 'text-primary' : 'invisible'}`} />
+                            <span>
+                                <span className="block font-medium text-on-surface">{label}</span>
+                                <span className="block text-xs text-on-surface-variant">{description}</span>
+                            </span>
+                        </button>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
 
 interface SourceDocumentPaneProps {
     // Document processing / load state
@@ -46,14 +111,17 @@ interface SourceDocumentPaneProps {
     minZoom: number;
     setMinZoom: (z: number) => void;
 
+    // OCR region overlay: 'all' shows every box, 'issues' dims high-confidence
+    // ones to reduce clutter, 'none' hides the overlay entirely.
+    overlayMode: OverlayMode;
+    setOverlayMode: (mode: OverlayMode) => void;
+
     // Page navigation
     totalPages: number;
     activePageIndex: number;
     goToPage: (index: number) => void;
     pageInputValue: string;
     setPageInputValue: (value: string) => void;
-
-    onHelp: () => void;
 }
 
 export function SourceDocumentPane(props: SourceDocumentPaneProps): React.ReactElement {
@@ -64,14 +132,19 @@ export function SourceDocumentPane(props: SourceDocumentPaneProps): React.ReactE
         addWord, editWord, deleteWord, editingState, setEditingState,
         highlightedWordId, setHighlightedWordId, onWordClick, provenanceHighlightBox,
         activeTool, setActiveTool, viewTransform, setViewTransform, minZoom, setMinZoom,
+        overlayMode, setOverlayMode,
         totalPages, activePageIndex, goToPage, pageInputValue, setPageInputValue,
-        onHelp,
     } = props;
 
     // A broken session: the page's cached image file is missing (the asset
     // protocol 403s), so the <img> fires onError. Track that here to swap the
     // viewer for a clear message instead of leaving a blank/broken pane.
     const [imageLoadFailed, setImageLoadFailed] = React.useState(false);
+
+    // Help overlay: centered over this pane's own footprint (via its bounds),
+    // not the whole app window — see useElementBounds/HelpOverlay.
+    const [helpOpen, setHelpOpen] = React.useState(false);
+    const [paneRef, helpBounds] = useElementBounds<HTMLDivElement>(helpOpen);
 
     // Reset whenever the source image changes (page switch, retry, or a new
     // session), so a prior failure doesn't stick to a freshly-loaded image.
@@ -102,7 +175,7 @@ export function SourceDocumentPane(props: SourceDocumentPaneProps): React.ReactE
             <div className="mb-4 flex min-h-[40px] items-center">
                 <h2 className="font-headline-md text-headline-md text-primary truncate">Source Document</h2>
             </div>
-            <div className="relative flex-1 overflow-hidden rounded-2xl border border-outline-variant bg-surface-bright shadow-sm">
+            <div ref={paneRef} className="relative flex-1 overflow-hidden rounded-2xl border border-outline-variant bg-surface-bright shadow-sm">
                 {isDbLoading ? (
                     showProcessing ? (
                         <div className="flex w-full flex-col items-center justify-center gap-3 h-full text-on-surface-variant">
@@ -157,6 +230,7 @@ export function SourceDocumentPane(props: SourceDocumentPaneProps): React.ReactE
                         onMinScaleChange={setMinZoom}
                         provenanceHighlightBox={provenanceHighlightBox}
                         onLoadError={() => setImageLoadFailed(true)}
+                        overlayMode={overlayMode}
                     />
                 ) : activePage?.error ? (
                     <div className="flex w-full flex-col items-center justify-center gap-3 text-error h-full">
@@ -199,6 +273,8 @@ export function SourceDocumentPane(props: SourceDocumentPaneProps): React.ReactE
                                 Pan
                             </button>
                         </div>
+
+                        <OverlayModeMenu mode={overlayMode} setMode={setOverlayMode} />
 
                         {totalPages > 1 && (
                             /* Page Navigation */
@@ -282,10 +358,16 @@ export function SourceDocumentPane(props: SourceDocumentPaneProps): React.ReactE
                         </div>
 
                         {/* Second island: help for the source-document side. */}
-                        <HelpIsland onClick={onHelp} label="About the source document tools" />
+                        <HelpIsland onClick={() => setHelpOpen(true)} label="About the source document tools" />
                     </div>
                 )}
             </div>
+
+            {helpOpen && (
+                <HelpOverlay title="Source Document" onClose={() => setHelpOpen(false)} bounds={helpBounds}>
+                    <SourceHelp />
+                </HelpOverlay>
+            )}
         </>
     );
 }
