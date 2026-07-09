@@ -2,6 +2,30 @@
 
 ## Open
 
+- Ideally all the test screenshots I have are full green provinence
+- Terms of Service, etc. -- lets not get sued or allow for any possibility of
+
+
+
+
+### Session:
+- Info modals should open on their corresponding side
+- Provinence matching should use the better(?) approach of walking through the OCR locations and determining the grid algorithmically, then defining indexes based on that, not reading order which doesn't handle multiline cells well
+- Sliding the slider over the image is laggy, compared to sliding it not over the image
+- 
+
+
+
+
+
+
+
+
+### Low priority for first release:
+- Screenshots don't show up well against the same theme -- dark screenshot against dark mode bg + vice versa
+    - Could add drop shadow, or outline?
+- Colour is the only signal for confidence -- bad accessibility for colour blind
+
 
 ### From VM
 
@@ -30,7 +54,6 @@
 
 
 ### What do I need for 1.0.0?
-- app icons to monochrome version
 - monochrome app icon next to name in top left of side bar 
 - proof read all text
 - note on poor quality extractions -- "try fixing the OCR on the left for better results"

@@ -1,0 +1,970 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Anchor Icon Studio</title>
+<!--
+  Anchor Icon Studio — local tool, no build step, no network.
+
+  Open this file in Chrome or Edge (File System Access API required),
+  click "Open icons folder" and point it at app/src-tauri/icons.
+
+  - Shows every PNG, every layer inside icon.ico, and every chunk inside icon.icns.
+  - Two brand variants: Large (full registration mark, reversed on Harbor) and
+    Small/taskbar (ink anchor, big, on Sand #E8E5DA, no guides). A pixel-size
+    threshold decides which variant each icon gets; any icon can be overridden.
+  - "Write all" renders every target from the SVG master and writes the PNGs,
+    rebuilds icon.ico (BMP layers <256, PNG at 256) and icon.icns (PNG chunks).
+
+  After writing on Windows the shell cache is sticky:
+      ie4uinit.exe -show
+      taskkill /IM explorer.exe /F; start explorer.exe
+  See docs in the footer of the page.
+-->
+<style>
+  :root{
+    --ink:#16202E; --paper:#F3F1EA; --sand:#E8E5DA; --harbor:#1C3D5E;
+    --card:#FFFFFF; --line:rgba(22,32,46,0.12); --dim:rgba(22,32,46,0.55);
+    --amber:#C0894A;
+    --mono:'JetBrains Mono','Cascadia Code',Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--paper);color:var(--ink);
+    font-family:'Schibsted Grotesk','Segoe UI',system-ui,sans-serif;font-size:14px}
+  ::selection{background:var(--ink);color:var(--paper)}
+  button{font:inherit;cursor:pointer;border:1px solid var(--line);background:var(--card);
+    color:var(--ink);border-radius:8px;padding:7px 14px}
+  button:hover{border-color:rgba(22,32,46,0.35)}
+  button.primary{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+  button.primary:hover{background:#25344a}
+  button:disabled{opacity:.45;cursor:default}
+  input[type=range]{width:100%;accent-color:var(--ink)}
+  input[type=color]{width:34px;height:26px;padding:1px;border:1px solid var(--line);border-radius:6px;background:var(--card)}
+  input[type=number]{font:inherit;width:64px;padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--ink)}
+  .hexIn{font-family:var(--mono);font-size:11px;width:78px;padding:4px 6px;border:1px solid var(--line);
+    border-radius:6px;background:var(--card);color:var(--ink);text-transform:uppercase;flex-shrink:0}
+  .hexIn.bad{border-color:#a4243b;color:#a4243b}
+  label{user-select:none}
+
+  header{display:flex;align-items:center;gap:12px;padding:14px 20px;border-bottom:1px solid var(--line);
+    position:sticky;top:0;background:var(--paper);z-index:20;flex-wrap:wrap}
+  header h1{font-size:17px;font-weight:600;margin:0;letter-spacing:-0.02em;display:flex;align-items:center;gap:10px}
+  header .path{font-family:var(--mono);font-size:11px;color:var(--dim);max-width:340px;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap}
+  header .spacer{flex:1}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .seg button{border:0;border-radius:0;padding:6px 12px;background:var(--card)}
+  .seg button.on{background:var(--ink);color:var(--paper)}
+
+  main{display:grid;grid-template-columns:340px 1fr;gap:0;align-items:start}
+  #editor{position:sticky;top:61px;height:calc(100vh - 61px);overflow-y:auto;
+    border-right:1px solid var(--line);padding:18px 20px 40px;background:var(--card)}
+  #gridWrap{padding:18px 20px 80px}
+
+  .eyebrow{font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--dim);margin:20px 0 10px}
+  .eyebrow:first-child{margin-top:0}
+
+  #bigPreviewBox{border:1px solid var(--line);border-radius:12px;padding:14px;display:flex;
+    flex-direction:column;align-items:center;gap:10px;
+    background:repeating-conic-gradient(#e3e0d6 0 25%,#efece2 0 50%) 0 0/16px 16px;}
+  #bigPreview{width:264px;height:264px;cursor:grab;touch-action:none}
+  #bigPreview:active{cursor:grabbing}
+  #previewHint{font-family:var(--mono);font-size:10px;color:var(--dim);background:var(--paper);
+    padding:3px 8px;border-radius:6px}
+
+  .ctlRow{display:flex;align-items:center;gap:10px;margin:8px 0}
+  .ctlRow .lbl{width:88px;flex-shrink:0;font-size:12.5px;color:rgba(22,32,46,.8)}
+  .ctlRow .val{font-family:var(--mono);font-size:11px;color:var(--dim);width:52px;text-align:right;flex-shrink:0}
+  .ctlGroup{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:10px}
+  .ctlGroup > .head{display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px;margin-bottom:2px}
+  .ctlGroup > .head input{accent-color:var(--ink)}
+
+  .scopeCard{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:12.5px}
+  .scopeCard b{font-weight:600}
+  .scopeCard .n{color:var(--dim)}
+  .scopeBtns{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+  .scopeBtns button{padding:4px 10px;font-size:12px}
+
+  .variantTabs{display:flex;gap:8px;margin-bottom:12px}
+  .variantTabs button{flex:1;padding:8px 6px;font-size:12.5px}
+  .variantTabs button.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+
+  .section{margin-bottom:26px}
+  .section h2{font-size:13px;font-weight:600;margin:0 0 4px;display:flex;align-items:baseline;gap:10px}
+  .section h2 .sub{font-family:var(--mono);font-size:10.5px;font-weight:400;color:var(--dim)}
+  .tiles{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px}
+  .tile{border:1px solid var(--line);border-radius:10px;background:var(--card);padding:8px;
+    display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;position:relative;min-width:86px}
+  .tile:hover{border-color:rgba(22,32,46,.4)}
+  .tile.sel{outline:2px solid var(--ink);outline-offset:1px}
+  .tile .imgs{display:flex;gap:6px;align-items:flex-end}
+  .tile .imgBox{background:repeating-conic-gradient(#e3e0d6 0 25%,#efece2 0 50%) 0 0/12px 12px;
+    border-radius:6px;display:flex;align-items:center;justify-content:center;overflow:hidden}
+  .tile canvas,.tile img{display:block}
+  .tile .cap{font-family:var(--mono);font-size:10px;color:var(--dim);text-align:center;line-height:1.5}
+  .tile .cap b{color:var(--ink);font-weight:500}
+  .badge{position:absolute;top:6px;right:6px;font-family:var(--mono);font-size:9px;padding:2px 6px;
+    border-radius:99px;letter-spacing:.05em}
+  .badge.L{background:var(--harbor);color:var(--paper)}
+  .badge.S{background:var(--sand);color:var(--ink)}
+  .badge.C{background:var(--amber);color:#fff}
+  .miniLbl{font-family:var(--mono);font-size:8.5px;color:var(--dim);text-align:center;margin-top:2px}
+
+  #status{font-family:var(--mono);font-size:11.5px;color:var(--dim);white-space:pre-wrap}
+  #report{font-family:var(--mono);font-size:11.5px;white-space:pre-wrap;background:var(--card);
+    border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-top:12px;display:none}
+  #report.show{display:block}
+  .ok{color:#2c6e49}.bad{color:#a4243b}
+
+  #dropNote{margin:60px auto;max-width:520px;text-align:center;color:var(--dim);line-height:1.7}
+  #dropNote .big{font-size:20px;color:var(--ink);font-weight:600;margin-bottom:8px}
+  footer{grid-column:1 / -1;border-top:1px solid var(--line);padding:20px;color:var(--dim);
+    font-size:12.5px;line-height:1.7}
+  footer code{font-family:var(--mono);font-size:11px;background:var(--card);border:1px solid var(--line);
+    border-radius:4px;padding:1px 5px}
+  details summary{cursor:pointer;font-weight:600;color:var(--ink)}
+  .threshRow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>
+    <svg id="logoMark" viewBox="0 0 240 240" width="26" height="26"></svg>
+    Anchor Icon Studio
+  </h1>
+  <span class="path" id="folderPath">no folder open</span>
+  <span class="spacer"></span>
+  <div class="seg" id="viewSeg">
+    <button data-v="new" class="on">New design</button>
+    <button data-v="both">Compare</button>
+    <button data-v="cur">Current files</button>
+  </div>
+  <label style="font-size:12px;display:flex;align-items:center;gap:5px">
+    zoom <input type="number" id="zoom" min="1" max="8" value="2" style="width:46px">
+  </label>
+  <button id="btnOpen">Open icons folder</button>
+  <button id="btnReopen" style="display:none">Reopen last</button>
+  <button id="btnWrite" class="primary" disabled>Write all icons</button>
+</header>
+
+<main>
+  <aside id="editor">
+    <div class="eyebrow">Editing scope</div>
+    <div class="scopeCard" id="scopeCard">Select a variant below or click any icon in the grid.</div>
+    <div class="variantTabs">
+      <button id="tabLarge" class="on">Large</button>
+      <button id="tabSmall">Small / taskbar</button>
+    </div>
+
+    <div class="eyebrow">Preview — drag anchor · scroll to resize</div>
+    <div id="bigPreviewBox">
+      <div id="bigPreview"></div>
+      <div id="previewHint">—</div>
+    </div>
+
+    <div class="eyebrow">Layers</div>
+    <div class="ctlGroup">
+      <div class="head"><input type="checkbox" id="bgOn"> Backdrop</div>
+      <div class="ctlRow"><span class="lbl">Color</span><input type="color" id="bgColor">
+        <input type="text" class="hexIn" id="bgColorHex" maxlength="7" spellcheck="false" placeholder="#RRGGBB"></div>
+      <div class="ctlRow"><span class="lbl">Corner radius</span><input type="range" id="bgRadius" min="0" max="50" step="0.5">
+        <span class="val" id="bgRadiusV"></span></div>
+    </div>
+    <div class="ctlGroup">
+      <div class="head"><input type="checkbox" id="gOn"> Guides</div>
+      <div class="ctlRow"><span class="lbl">Color</span><input type="color" id="gColor">
+        <input type="text" class="hexIn" id="gColorHex" maxlength="7" spellcheck="false" placeholder="#RRGGBB"></div>
+      <div class="ctlRow"><span class="lbl">Opacity</span><input type="range" id="gOpacity" min="5" max="100" step="1">
+        <span class="val" id="gOpacityV"></span></div>
+      <div class="ctlRow"><span class="lbl">Stroke</span><input type="range" id="gWidth" min="1" max="12" step="0.5">
+        <span class="val" id="gWidthV"></span></div>
+      <div class="ctlRow"><span class="lbl">Center mask</span><input type="range" id="gMaskR" min="0" max="110" step="1">
+        <span class="val" id="gMaskRV"></span></div>
+    </div>
+    <div class="ctlGroup">
+      <div class="head" style="margin-bottom:6px">Anchor</div>
+      <div class="ctlRow"><span class="lbl">Color</span><input type="color" id="aColor">
+        <input type="text" class="hexIn" id="aColorHex" maxlength="7" spellcheck="false" placeholder="#RRGGBB"></div>
+      <div class="ctlRow"><span class="lbl">Size</span><input type="range" id="aSize" min="15" max="98" step="0.5">
+        <span class="val" id="aSizeV"></span></div>
+      <div class="ctlRow"><span class="lbl">Offset X</span><input type="range" id="aDx" min="-25" max="25" step="0.25">
+        <span class="val" id="aDxV"></span></div>
+      <div class="ctlRow"><span class="lbl">Offset Y</span><input type="range" id="aDy" min="-25" max="25" step="0.25">
+        <span class="val" id="aDyV"></span></div>
+    </div>
+    <div class="scopeBtns">
+      <button id="btnResetVariant">Reset to brand defaults</button>
+    </div>
+
+    <div class="eyebrow">Small-variant threshold</div>
+    <div class="threshRow">
+      <input type="number" id="threshold" min="0" max="1024" step="1">
+      <span style="font-size:12px;color:var(--dim)">icons ≤ this many px use the Small / taskbar variant</span>
+    </div>
+
+    <div class="eyebrow">Render</div>
+    <label style="font-size:12.5px;display:flex;gap:8px;align-items:center">
+      <input type="checkbox" id="supersample" style="accent-color:var(--ink)">
+      2× supersample (render double, downscale)
+    </label>
+
+    <div class="eyebrow">Status</div>
+    <div id="status">idle</div>
+    <div id="report"></div>
+  </aside>
+
+  <div id="gridWrap">
+    <div id="dropNote">
+      <div class="big">Open your icons folder to begin</div>
+      Point it at <code style="font-family:var(--mono)">app\src-tauri\icons</code>.
+      Every PNG, every layer inside <span style="font-family:var(--mono)">icon.ico</span> and every chunk inside
+      <span style="font-family:var(--mono)">icon.icns</span> will appear here, rendered from the live design.
+      <br><br>Requires Chrome or Edge (File System Access API).
+    </div>
+    <div id="grid"></div>
+  </div>
+
+  <footer>
+    <details>
+      <summary>After writing — checklist (from icon-regeneration.md)</summary>
+      <p>1. Windows caches icons aggressively. Rebuild the cache, then restart Explorer if the taskbar is still stale:</p>
+      <p><code>ie4uinit.exe -show</code> &nbsp; then &nbsp; <code>taskkill /IM explorer.exe /F; start explorer.exe</code></p>
+      <p>2. Rebuild the app so the new <code>icon.ico</code> is embedded. <b>Cargo does not watch the icons folder</b> — touch <code>tauri.conf.json</code> first (e.g. <code>(Get-Item app\src-tauri\tauri.conf.json).LastWriteTime = Get-Date</code>) so <code>build.rs</code> re-runs, re-embeds the exe resource, and re-expands <code>generate_context!</code> (the runtime window icon). Then <code>cd app &amp;&amp; npm run tauri dev</code> or <code>build</code>.</p>
+      <p>2b. The taskbar icon of the <i>running</i> app is a single image: Tauri embeds the <b>first</b> entry of <code>icon.ico</code> and sets it as the window icon. This tool always writes the 32×32 entry first for that reason.</p>
+      <p>3. Confirm <code>tauri.conf.json → bundle.icon</code> lists <code>32x32.png</code>, <code>128x128.png</code>, <code>128x128@2x.png</code>, <code>icon.icns</code>, <code>icon.ico</code>.</p>
+      <p>4. The rebuilt <code>icon.icns</code> uses modern PNG chunks (icp4/icp5/ic07–ic14); the legacy is32/il32 RLE chunks are dropped — fine for macOS 10.7+.</p>
+      <p>5. The Windows taskbar draws the small (16–32 px) layers of the <code>.ico</code> embedded in the exe — that is where the Small / taskbar variant shows up.</p>
+      <p>Settings (variants, threshold, overrides) are saved to <code>icon-studio.config.json</code> inside the folder on every write, and to localStorage as you edit.</p>
+    </details>
+  </footer>
+</main>
+
+<script>
+'use strict';
+/* ============================== brand constants ============================== */
+const BRAND = { ink:'#16202E', paper:'#F3F1EA', sand:'#E8E5DA', harbor:'#1C3D5E' };
+
+/* Anchor glyph from the brand sheet (Material-Symbols 960 grid, y in [-960,0]) */
+const ANCHOR_PATH = "M349.02-95.3q-65.43-22.72-117.31-62.28-51.88-39.55-84.55-93.06-32.66-53.51-32.66-114.86v-78.09q0-13.91 12.43-20.51 12.44-6.6 23.87 2.36l95.55 71.11q16.15 12.43 17.77 33.45 1.62 21.01-13.05 35.68l-26.14 26.13q28.53 48.37 87.22 83.22 58.7 34.85 122.35 44.85v-343.37H360q-19.15 0-32.33-13.18-13.17-13.17-13.17-32.32 0-19.16 13.17-32.33 13.18-13.17 32.33-13.17h74.5v-41.74q-37.15-14.68-60.37-47.09-23.22-32.41-23.22-73.09 0-53.82 37.63-91.57 37.63-37.75 91.46-37.75 53.83 0 91.46 37.75 37.63 37.75 37.63 91.57 0 40.68-23.22 73.09-23.22 32.41-60.37 47.09v41.74H600q19.15 0 32.33 13.17 13.17 13.17 13.17 32.33 0 19.15-13.17 32.32-13.18 13.18-32.33 13.18h-74.5v343.37q63.65-10 122.35-44.85 58.69-34.85 87.22-83.22l-26.14-26.13q-14.67-14.67-13.05-35.68 1.62-21.02 17.77-33.45l95.55-71.11q11.43-8.96 23.87-2.36 12.43 6.6 12.43 20.51v78.09q0 61.35-32.66 114.86-32.67 53.51-84.55 93.06-51.88 39.56-117.31 62.28Q545.54-72.59 480-72.59q-65.54 0-130.98-22.71ZM480-725.5q16.28 0 27.18-10.9 10.91-10.9 10.91-27.19 0-16.28-10.91-27.3-10.9-11.02-27.18-11.02t-27.18 11.02q-10.91 11.02-10.91 27.3 0 16.29 10.91 27.19 10.9 10.9 27.18 10.9Z";
+
+/* Guides geometry in the 240-unit brand grid */
+const GUIDES_SVG = (color, opacity, w) =>
+  `<g stroke="${color}" stroke-opacity="${opacity}" stroke-width="${w}" fill="none" stroke-linecap="round" stroke-linejoin="round">` +
+  `<line x1="42" y1="120" x2="198" y2="120"/><line x1="120" y1="42" x2="120" y2="198"/>` +
+  `<path d="M44 66 V44 H66"/><path d="M174 44 H196 V66"/>` +
+  `<path d="M44 174 V196 H66"/><path d="M196 174 V196 H174"/></g>`;
+
+const DEFAULT_LARGE = {
+  bg:{on:true, color:BRAND.harbor, radius:20.5},
+  guides:{on:true, color:BRAND.paper, opacity:35, width:4, maskR:66},
+  anchor:{color:BRAND.paper, size:50, dx:0, dy:0}
+};
+const DEFAULT_SMALL = {
+  bg:{on:true, color:BRAND.sand, radius:20.5},
+  guides:{on:false, color:BRAND.ink, opacity:28, width:4, maskR:0},
+  anchor:{color:BRAND.ink, size:76, dx:0, dy:0}
+};
+
+/* icns chunk type → pixel size (modern PNG-payload chunks only) */
+const ICNS_TYPES = { icp4:16, icp5:32, ic11:32, ic12:64, ic07:128, ic13:256, ic08:256, ic14:512, ic09:512, ic10:1024 };
+const ICNS_NOTE  = { ic11:'16@2x', ic12:'32@2x', ic13:'128@2x', ic14:'256@2x' };
+const ICNS_WRITE_SET = ['icp4','icp5','ic11','ic12','ic07','ic13','ic08','ic14','ic09','ic10'];
+const DEFAULT_ICO_SIZES = [16,24,32,48,64,256];
+
+/* ============================== state ============================== */
+const clone = o => JSON.parse(JSON.stringify(o));
+let state = {
+  large: clone(DEFAULT_LARGE),
+  small: clone(DEFAULT_SMALL),
+  threshold: 64,
+  overrides: {},           // targetId -> variant object
+  supersample: false
+};
+let dirHandle = null;
+let targets = [];          // {id, group, file, size, note, curURL|curCanvas}
+let icoSizes = DEFAULT_ICO_SIZES.slice();
+let selection = { kind:'variant', which:'large' };   // or {kind:'target', id}
+let anchorInk = null;      // measured ink bbox of ANCHOR_PATH in the 960 grid
+let viewMode = 'new';
+let zoom = 2;
+
+const $ = id => document.getElementById(id);
+const status = msg => { $('status').textContent = msg; };
+
+/* localStorage persistence */
+function saveLocal(){ try{ localStorage.setItem('anchor-icon-studio', JSON.stringify(state)); }catch(e){} }
+function loadLocal(){
+  try{
+    const raw = localStorage.getItem('anchor-icon-studio');
+    if(raw){ const s = JSON.parse(raw); if(s && s.large && s.small) state = Object.assign(state, s); }
+  }catch(e){}
+}
+
+/* IndexedDB for remembering the folder handle */
+function idb(){ return new Promise((res,rej)=>{ const r = indexedDB.open('anchor-icon-studio',1);
+  r.onupgradeneeded = ()=>r.result.createObjectStore('kv');
+  r.onsuccess = ()=>res(r.result); r.onerror = ()=>rej(r.error); }); }
+async function idbSet(k,v){ const db = await idb(); return new Promise((res,rej)=>{
+  const tx = db.transaction('kv','readwrite'); tx.objectStore('kv').put(v,k);
+  tx.oncomplete = res; tx.onerror = ()=>rej(tx.error); }); }
+async function idbGet(k){ const db = await idb(); return new Promise((res,rej)=>{
+  const rq = db.transaction('kv').objectStore('kv').get(k);
+  rq.onsuccess = ()=>res(rq.result); rq.onerror = ()=>rej(rq.error); }); }
+
+/* ============================== SVG master ============================== */
+function measureAnchorInk(){
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS,'svg');
+  svg.setAttribute('viewBox','0 -960 960 960');
+  svg.style.cssText = 'position:absolute;width:10px;height:10px;visibility:hidden';
+  const p = document.createElementNS(NS,'path');
+  p.setAttribute('d', ANCHOR_PATH);
+  svg.appendChild(p); document.body.appendChild(svg);
+  const bb = p.getBBox();
+  document.body.removeChild(svg);
+  anchorInk = {x:bb.x, y:bb.y, w:bb.width, h:bb.height};
+}
+
+/* Build the 240-grid SVG for a variant. px = raster size attr. */
+function buildSvg(v, px){
+  const parts = [];
+  if(v.bg.on){
+    const rx = 240 * v.bg.radius / 100;
+    parts.push(`<rect x="0" y="0" width="240" height="240" rx="${rx}" fill="${v.bg.color}"/>`);
+  }
+  if(v.guides.on){
+    parts.push(GUIDES_SVG(v.guides.color, v.guides.opacity/100, v.guides.width));
+    if(v.guides.maskR > 0 && v.bg.on)
+      parts.push(`<circle cx="120" cy="120" r="${v.guides.maskR}" fill="${v.bg.color}"/>`);
+  }
+  const s = (240 * v.anchor.size / 100) / anchorInk.h;
+  const cx = 120 + v.anchor.dx * 2.4, cy = 120 + v.anchor.dy * 2.4;
+  const tx = cx - s * (anchorInk.x + anchorInk.w/2);
+  const ty = cy - s * (anchorInk.y + anchorInk.h/2);
+  parts.push(`<path d="${ANCHOR_PATH}" transform="translate(${tx} ${ty}) scale(${s})" fill="${v.anchor.color}"/>`);
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="${px}" height="${px}">${parts.join('')}</svg>`;
+}
+
+function rasterize(svgStr, px){
+  return new Promise((res,rej)=>{
+    const url = URL.createObjectURL(new Blob([svgStr],{type:'image/svg+xml'}));
+    const img = new Image();
+    img.onload = ()=>{ const c = document.createElement('canvas'); c.width = c.height = px;
+      const ctx = c.getContext('2d'); ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(img,0,0,px,px); URL.revokeObjectURL(url); res(c); };
+    img.onerror = e=>{ URL.revokeObjectURL(url); rej(new Error('SVG rasterize failed')); };
+    img.src = url;
+  });
+}
+
+async function renderVariant(v, size){
+  if(state.supersample && size < 512){
+    const big = await rasterize(buildSvg(v, size*2), size*2);
+    const c = document.createElement('canvas'); c.width = c.height = size;
+    const ctx = c.getContext('2d'); ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(big,0,0,size,size); return c;
+  }
+  return rasterize(buildSvg(v, size), size);
+}
+
+/* ============================== parsers (current files) ============================== */
+const PNG_SIG = [0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A];
+function isPng(u8, off=0){ return PNG_SIG.every((b,i)=>u8[off+i]===b); }
+function pngDims(u8){ const dv = new DataView(u8.buffer, u8.byteOffset);
+  return { w:dv.getUint32(16), h:dv.getUint32(20) }; }
+
+function parseIco(u8){
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  if(dv.getUint16(0,true)!==0 || dv.getUint16(2,true)!==1) throw new Error('not an ICO');
+  const n = dv.getUint16(4,true), out = [];
+  for(let i=0;i<n;i++){
+    const o = 6+i*16;
+    const w = u8[o]||256, h = u8[o+1]||256;
+    const bytes = dv.getUint32(o+8,true), off = dv.getUint32(o+12,true);
+    out.push({ w, h, data: u8.subarray(off, off+bytes) });
+  }
+  return out;
+}
+
+/* decode one ICO entry to a canvas (PNG payload or 32bpp BMP DIB); null if unsupported */
+async function decodeIcoEntry(e){
+  if(isPng(e.data)){
+    const img = await blobToImg(new Blob([e.data],{type:'image/png'}));
+    return imgToCanvas(img);
+  }
+  const dv = new DataView(e.data.buffer, e.data.byteOffset, e.data.byteLength);
+  const hdr = dv.getUint32(0,true), bpp = dv.getUint16(14,true);
+  if(hdr!==40 || bpp!==32) return null;
+  const w = dv.getInt32(4,true), h = dv.getInt32(8,true)/2;
+  const clrUsed = dv.getUint32(32,true);
+  let off = 40 + clrUsed*4;
+  const id = new ImageData(w,h); let anyAlpha = false;
+  for(let y=h-1;y>=0;y--) for(let x=0;x<w;x++){
+    const p = (y*w+x)*4;
+    id.data[p+2]=e.data[off++]; id.data[p+1]=e.data[off++]; id.data[p]=e.data[off++];
+    const a=e.data[off++]; id.data[p+3]=a; if(a) anyAlpha=true;
+  }
+  if(!anyAlpha){ // alpha channel empty → use AND mask
+    const maskRow = Math.ceil(w/32)*4;
+    for(let y=0;y<h;y++) for(let x=0;x<w;x++){
+      const bit = (e.data[off + (h-1-y)*maskRow + (x>>3)] >> (7-(x&7))) & 1;
+      id.data[(y*w+x)*4+3] = bit ? 0 : 255;
+    }
+  }
+  const c = document.createElement('canvas'); c.width=w; c.height=h;
+  c.getContext('2d').putImageData(id,0,0); return c;
+}
+
+function parseIcns(u8){
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  const out = []; let o = 8;
+  while(o+8 <= u8.byteLength){
+    const type = String.fromCharCode(u8[o],u8[o+1],u8[o+2],u8[o+3]);
+    const len = dv.getUint32(o+4);
+    if(len<8) break;
+    out.push({ type, data: u8.subarray(o+8, o+len) });
+    o += len;
+  }
+  return out;
+}
+
+function blobToImg(blob){ return new Promise((res,rej)=>{
+  const url = URL.createObjectURL(blob); const img = new Image();
+  img.onload = ()=>{ res(img); }; img.onerror = ()=>{ URL.revokeObjectURL(url); rej(new Error('decode failed')); };
+  img.src = url; }); }
+function imgToCanvas(img){ const c = document.createElement('canvas');
+  c.width = img.naturalWidth; c.height = img.naturalHeight;
+  c.getContext('2d').drawImage(img,0,0); return c; }
+
+/* ============================== encoders ============================== */
+function canvasPng(canvas){ return new Promise(res=>canvas.toBlob(b=>b.arrayBuffer().then(a=>res(new Uint8Array(a))),'image/png')); }
+
+function encodeBmpDib(canvas){
+  const w = canvas.width, h = canvas.height;
+  const data = canvas.getContext('2d').getImageData(0,0,w,h).data;
+  const maskRow = Math.ceil(w/32)*4;
+  const buf = new ArrayBuffer(40 + w*h*4 + maskRow*h);
+  const dv = new DataView(buf), u8 = new Uint8Array(buf);
+  dv.setUint32(0,40,true); dv.setInt32(4,w,true); dv.setInt32(8,h*2,true);
+  dv.setUint16(12,1,true); dv.setUint16(14,32,true);
+  dv.setUint32(20, w*h*4 + maskRow*h, true);
+  let off = 40;
+  for(let y=h-1;y>=0;y--) for(let x=0;x<w;x++){
+    const i=(y*w+x)*4;
+    u8[off++]=data[i+2]; u8[off++]=data[i+1]; u8[off++]=data[i]; u8[off++]=data[i+3];
+  }
+  return u8; // AND mask left zeroed — alpha channel governs
+}
+
+async function buildIco(layers){ // [{size, canvas}]
+  /* Entry order matters: tauri-codegen decodes entries[0] as the app's single
+     runtime window icon (tao sets it as ICON_SMALL; ICON_BIG is never set), and
+     the Windows taskbar scales whatever that one image is. 16px first = blurry
+     taskbar. Put 32px first, rest ascending — same as `tauri icon` output. */
+  layers = layers.slice().sort((a,b)=>a.size-b.size);
+  const lead = layers.reduce((p,c)=>Math.abs(c.size-32)<Math.abs(p.size-32)?c:p, layers[0]);
+  layers = [lead, ...layers.filter(l=>l!==lead)];
+  const payloads = [];
+  for(const l of layers)
+    payloads.push(l.size >= 256 ? await canvasPng(l.canvas) : encodeBmpDib(l.canvas));
+  const n = layers.length;
+  let off = 6 + 16*n, total = off;
+  payloads.forEach(p=>total+=p.length);
+  const out = new Uint8Array(total), dv = new DataView(out.buffer);
+  dv.setUint16(2,1,true); dv.setUint16(4,n,true);
+  layers.forEach((l,i)=>{
+    const o = 6+i*16;
+    out[o]   = l.size>=256?0:l.size;
+    out[o+1] = l.size>=256?0:l.size;
+    dv.setUint16(o+4,1,true); dv.setUint16(o+6,32,true);
+    dv.setUint32(o+8,payloads[i].length,true); dv.setUint32(o+12,off,true);
+    out.set(payloads[i],off); off += payloads[i].length;
+  });
+  return out;
+}
+
+async function buildIcns(entries){ // [{type, canvas}]
+  const chunks = [];
+  let total = 8;
+  for(const e of entries){
+    const png = await canvasPng(e.canvas);
+    chunks.push({type:e.type, data:png}); total += 8 + png.length;
+  }
+  const out = new Uint8Array(total), dv = new DataView(out.buffer);
+  out.set([0x69,0x63,0x6E,0x73]); dv.setUint32(4,total);
+  let off = 8;
+  for(const c of chunks){
+    for(let i=0;i<4;i++) out[off+i]=c.type.charCodeAt(i);
+    dv.setUint32(off+4, 8+c.data.length);
+    out.set(c.data, off+8); off += 8+c.data.length;
+  }
+  return out;
+}
+
+/* ============================== folder scan ============================== */
+async function openFolder(handle){
+  dirHandle = handle;
+  $('folderPath').textContent = handle.name + '/';
+  targets = []; icoSizes = DEFAULT_ICO_SIZES.slice();
+  const files = [];
+  for await (const [name, h] of handle.entries())
+    if(h.kind==='file') files.push(name);
+  files.sort();
+
+  // config file in folder wins over localStorage
+  if(files.includes('icon-studio.config.json')){
+    try{
+      const f = await (await handle.getFileHandle('icon-studio.config.json')).getFile();
+      const s = JSON.parse(await f.text());
+      if(s && s.large && s.small){ state = Object.assign(state, s); syncControls(); }
+      status('loaded icon-studio.config.json from folder');
+    }catch(e){ /* ignore bad config */ }
+  }
+
+  for(const name of files){
+    const lower = name.toLowerCase();
+    try{
+      if(lower.endsWith('.png')){
+        const u8 = new Uint8Array(await (await (await handle.getFileHandle(name)).getFile()).arrayBuffer());
+        if(!isPng(u8)) continue;
+        const d = pngDims(u8);
+        const img = await blobToImg(new Blob([u8],{type:'image/png'}));
+        targets.push({ id:'png:'+name, group:'PNG files', file:name, size:d.w, note:d.w!==d.h?`${d.w}×${d.h}`:null, cur:imgToCanvas(img) });
+      } else if(lower.endsWith('.ico')){
+        const u8 = new Uint8Array(await (await (await handle.getFileHandle(name)).getFile()).arrayBuffer());
+        const entries = parseIco(u8);
+        icoSizes = entries.map(e=>e.w).sort((a,b)=>a-b);
+        for(const e of entries){
+          let cur = null; try{ cur = await decodeIcoEntry(e); }catch(_){}
+          targets.push({ id:'ico:'+e.w, group:name+' — layers', file:name, size:e.w, note:null, cur });
+        }
+      } else if(lower.endsWith('.icns')){
+        const u8 = new Uint8Array(await (await (await handle.getFileHandle(name)).getFile()).arrayBuffer());
+        const found = {};
+        for(const ch of parseIcns(u8)){
+          if(isPng(ch.data)){
+            const img = await blobToImg(new Blob([ch.data],{type:'image/png'}));
+            found[ch.type] = imgToCanvas(img);
+          } else found[ch.type] = null; // legacy RLE
+        }
+        for(const type of ICNS_WRITE_SET){
+          const size = ICNS_TYPES[type];
+          targets.push({ id:'icns:'+type, group:name+' — layers', file:name, size,
+            note: type + (ICNS_NOTE[type]?' · '+ICNS_NOTE[type]:''),
+            cur: found[type] || null, curMissing: !(type in found) });
+        }
+      }
+    }catch(e){ console.warn('skip', name, e); }
+  }
+  $('dropNote').style.display = 'none';
+  $('btnWrite').disabled = false;
+  await idbSet('dir', handle);
+  status(`${targets.length} render targets from ${files.length} files`);
+  await renderGrid();
+}
+
+/* ============================== variants & selection ============================== */
+function variantFor(t){
+  if(state.overrides[t.id]) return { v: state.overrides[t.id], badge:'C' };
+  return t.size <= state.threshold
+    ? { v: state.small, badge:'S' }
+    : { v: state.large, badge:'L' };
+}
+function editedVariant(){
+  if(selection.kind==='variant') return selection.which==='large' ? state.large : state.small;
+  const t = targets.find(x=>x.id===selection.id);
+  if(!t) return state.large;
+  return variantFor(t).v;
+}
+function selectionLabel(){
+  if(selection.kind==='variant'){
+    const which = selection.which;
+    const n = targets.filter(t=>!state.overrides[t.id] && (t.size<=state.threshold)===(which==='small')).length;
+    return `<b>${which==='large'?'Large variant':'Small / taskbar variant'}</b><br>
+      <span class="n">applies to ${n} icon${n===1?'':'s'}${which==='small'?' (≤ '+state.threshold+' px)':' (> '+state.threshold+' px)'}</span>`;
+  }
+  const t = targets.find(x=>x.id===selection.id);
+  if(!t) return '';
+  const ov = !!state.overrides[t.id];
+  return `<b>${t.file}</b> — ${t.size}px${t.note?' ('+t.note+')':''}<br>
+    <span class="n">${ov ? 'has its own customized design' : 'inherits the '+(t.size<=state.threshold?'Small / taskbar':'Large')+' variant — edits here change that shared variant'}</span>`;
+}
+
+function renderScopeCard(){
+  const el = $('scopeCard');
+  el.innerHTML = selectionLabel();
+  if(selection.kind==='target'){
+    const t = targets.find(x=>x.id===selection.id);
+    const btns = document.createElement('div'); btns.className='scopeBtns';
+    if(!state.overrides[t.id]){
+      const b = document.createElement('button');
+      b.textContent = 'Customize this icon only';
+      b.onclick = ()=>{ state.overrides[t.id] = clone(variantFor(t).v); onStateChanged(); };
+      btns.appendChild(b);
+    } else {
+      const b = document.createElement('button');
+      b.textContent = 'Remove customization';
+      b.onclick = ()=>{ delete state.overrides[t.id]; onStateChanged(); };
+      btns.appendChild(b);
+    }
+    el.appendChild(btns);
+  }
+  $('tabLarge').classList.toggle('on', selection.kind==='variant' && selection.which==='large');
+  $('tabSmall').classList.toggle('on', selection.kind==='variant' && selection.which==='small');
+}
+
+/* ============================== controls sync ============================== */
+const ctl = {
+  bgOn:'bg.on', bgColor:'bg.color', bgRadius:'bg.radius',
+  gOn:'guides.on', gColor:'guides.color', gOpacity:'guides.opacity', gWidth:'guides.width', gMaskR:'guides.maskR',
+  aColor:'anchor.color', aSize:'anchor.size', aDx:'anchor.dx', aDy:'anchor.dy'
+};
+function getPath(o,p){ return p.split('.').reduce((a,k)=>a[k],o); }
+function setPath(o,p,v){ const ks=p.split('.'); ks.slice(0,-1).reduce((a,k)=>a[k],o)[ks.at(-1)]=v; }
+
+/* hex text fields paired with the color pickers */
+const HEX_FIELDS = { bgColorHex:'bg.color', gColorHex:'guides.color', aColorHex:'anchor.color' };
+function normalizeHex(s){
+  s = s.trim().replace(/^#/,'');
+  if(/^[0-9a-fA-F]{3}$/.test(s)) s = s.split('').map(c=>c+c).join('');
+  return /^[0-9a-fA-F]{6}$/.test(s) ? '#'+s.toLowerCase() : null;
+}
+function setHexFields(v){
+  for(const [id,path] of Object.entries(HEX_FIELDS)){
+    const el = $(id); if(document.activeElement===el) continue;
+    el.value = getPath(v,path).toUpperCase(); el.classList.remove('bad');
+  }
+}
+
+function syncControls(){
+  const v = editedVariant();
+  for(const [id,path] of Object.entries(ctl)){
+    const el = $(id), val = getPath(v,path);
+    if(el.type==='checkbox') el.checked = !!val; else el.value = val;
+  }
+  setHexFields(v);
+  $('bgRadiusV').textContent = v.bg.radius+'%';
+  $('gOpacityV').textContent = v.guides.opacity+'%';
+  $('gWidthV').textContent = v.guides.width;
+  $('gMaskRV').textContent = v.guides.maskR;
+  $('aSizeV').textContent = v.anchor.size+'%';
+  $('aDxV').textContent = v.anchor.dx+'%';
+  $('aDyV').textContent = v.anchor.dy+'%';
+  $('threshold').value = state.threshold;
+  $('supersample').checked = state.supersample;
+  renderScopeCard();
+  renderBigPreview();
+}
+
+function wireControls(){
+  for(const [id,path] of Object.entries(ctl)){
+    $(id).addEventListener('input', ()=>{
+      const v = editedVariant(), el = $(id);
+      setPath(v, path, el.type==='checkbox' ? el.checked : (el.type==='color' ? el.value : parseFloat(el.value)));
+      onStateChanged();
+    });
+  }
+  for(const [hexId,path] of Object.entries(HEX_FIELDS)){
+    const el = $(hexId);
+    el.addEventListener('input', ()=>{
+      const hex = normalizeHex(el.value);
+      el.classList.toggle('bad', !hex && el.value.trim()!=='');
+      if(!hex) return;
+      setPath(editedVariant(), path, hex);
+      onStateChanged();
+    });
+    el.addEventListener('keydown', e=>{ if(e.key==='Enter') el.blur(); });
+    el.addEventListener('blur', ()=>{ setHexFields(editedVariant()); }); // snap back to the applied value
+  }
+  $('threshold').addEventListener('input', ()=>{
+    state.threshold = Math.max(0, parseInt($('threshold').value||'0',10));
+    onStateChanged();
+  });
+  $('supersample').addEventListener('input', ()=>{ state.supersample = $('supersample').checked; onStateChanged(); });
+  $('btnResetVariant').addEventListener('click', ()=>{
+    const def = (selection.kind==='variant' && selection.which==='small') ||
+                (selection.kind==='target' && targets.find(t=>t.id===selection.id)?.size <= state.threshold)
+                ? DEFAULT_SMALL : DEFAULT_LARGE;
+    Object.assign(editedVariant(), clone(def));
+    onStateChanged();
+  });
+  $('tabLarge').addEventListener('click', ()=>{ selection={kind:'variant',which:'large'}; syncControls(); renderGrid(); });
+  $('tabSmall').addEventListener('click', ()=>{ selection={kind:'variant',which:'small'}; syncControls(); renderGrid(); });
+  $('zoom').addEventListener('input', ()=>{ zoom = Math.max(1,Math.min(8,parseInt($('zoom').value||'2',10))); renderGrid(); });
+  document.querySelectorAll('#viewSeg button').forEach(b=>b.addEventListener('click',()=>{
+    viewMode = b.dataset.v;
+    document.querySelectorAll('#viewSeg button').forEach(x=>x.classList.toggle('on',x===b));
+    renderGrid();
+  }));
+
+  /* drag + wheel on the big preview */
+  const bp = $('bigPreview');
+  let drag = null;
+  bp.addEventListener('pointerdown', e=>{
+    const v = editedVariant();
+    drag = { x:e.clientX, y:e.clientY, dx:v.anchor.dx, dy:v.anchor.dy };
+    bp.setPointerCapture(e.pointerId);
+  });
+  bp.addEventListener('pointermove', e=>{
+    if(!drag) return;
+    const v = editedVariant();
+    const r = bp.getBoundingClientRect();
+    v.anchor.dx = Math.max(-25, Math.min(25, +(drag.dx + (e.clientX-drag.x)/r.width*100).toFixed(2)));
+    v.anchor.dy = Math.max(-25, Math.min(25, +(drag.dy + (e.clientY-drag.y)/r.height*100).toFixed(2)));
+    onStateChanged(true);
+  });
+  bp.addEventListener('pointerup', ()=>{ drag=null; onStateChanged(); });
+  bp.addEventListener('wheel', e=>{
+    e.preventDefault();
+    const v = editedVariant();
+    v.anchor.size = Math.max(15, Math.min(98, +(v.anchor.size - Math.sign(e.deltaY)*1.5).toFixed(1)));
+    onStateChanged(true);
+  }, {passive:false});
+}
+
+/* ============================== rendering ============================== */
+function renderBigPreview(){
+  const v = editedVariant();
+  $('bigPreview').innerHTML = buildSvg(v, 264);
+  $('previewHint').textContent =
+    `anchor ${v.anchor.size}% · offset ${v.anchor.dx},${v.anchor.dy} · bg ${v.bg.on?v.bg.color.toUpperCase():'off'}${v.guides.on?' · guides on':''}`;
+}
+
+let gridTimer = null;
+function onStateChanged(lightweight){
+  saveLocal();
+  syncControlsLight();
+  renderBigPreview();
+  clearTimeout(gridTimer);
+  gridTimer = setTimeout(renderGrid, lightweight ? 220 : 60);
+}
+/* update value readouts without rebuilding inputs (avoids fighting the user's drag) */
+function syncControlsLight(){
+  const v = editedVariant();
+  setHexFields(v);
+  $('bgRadiusV').textContent=v.bg.radius+'%';
+  $('gOpacityV').textContent=v.guides.opacity+'%';
+  $('gWidthV').textContent=v.guides.width; $('gMaskRV').textContent=v.guides.maskR;
+  $('aSizeV').textContent=v.anchor.size+'%';
+  $('aDxV').textContent=v.anchor.dx+'%'; $('aDyV').textContent=v.anchor.dy+'%';
+  for(const [id,path] of Object.entries(ctl)){
+    const el = $(id); if(document.activeElement===el) continue;
+    const val = getPath(v,path);
+    if(el.type==='checkbox') el.checked = !!val; else el.value = val;
+  }
+  renderScopeCard();
+}
+
+let renderPass = 0;
+async function renderGrid(){
+  if(!targets.length){ $('grid').innerHTML=''; return; }
+  const pass = ++renderPass;
+  const groups = {};
+  for(const t of targets) (groups[t.group] = groups[t.group]||[]).push(t);
+
+  const grid = $('grid'); grid.innerHTML = '';
+  for(const [gname, list] of Object.entries(groups)){
+    const sec = document.createElement('div'); sec.className='section';
+    const h = document.createElement('h2');
+    h.innerHTML = `${gname} <span class="sub">${list.length} target${list.length===1?'':'s'}</span>`;
+    sec.appendChild(h);
+    const tiles = document.createElement('div'); tiles.className='tiles';
+    list.sort((a,b)=>a.size-b.size || a.id.localeCompare(b.id));
+    for(const t of list) tiles.appendChild(makeTile(t));
+    sec.appendChild(tiles);
+    grid.appendChild(sec);
+  }
+  /* render new-design canvases asynchronously */
+  for(const t of targets){
+    if(pass !== renderPass) return;
+    const holder = document.getElementById('new-'+cssId(t.id));
+    if(!holder) continue;
+    try{
+      const {v} = variantFor(t);
+      const c = await renderVariant(v, t.size);
+      styleIconCanvas(c, t.size);
+      holder.replaceChildren(c);
+    }catch(e){ holder.textContent = '⚠'; }
+  }
+}
+function cssId(s){ return s.replace(/[^a-zA-Z0-9_-]/g,'_'); }
+function dispPx(size){ return Math.min(size*zoom, 192); }
+function styleIconCanvas(c, size){
+  const d = dispPx(size);
+  c.style.width = c.style.height = d+'px';
+  c.style.imageRendering = d > size ? 'pixelated' : 'auto';
+}
+
+function makeTile(t){
+  const {badge} = variantFor(t);
+  const tile = document.createElement('div');
+  tile.className = 'tile' + (selection.kind==='target' && selection.id===t.id ? ' sel':'');
+  const b = document.createElement('span');
+  b.className = 'badge '+badge;
+  b.textContent = badge==='C'?'CUSTOM':(badge==='S'?'SMALL':'LARGE');
+  tile.appendChild(b);
+
+  const imgs = document.createElement('div'); imgs.className='imgs';
+  const showNew = viewMode!=='cur', showCur = viewMode!=='new';
+  if(showNew){
+    const box = document.createElement('div'); box.className='imgBox';
+    const inner = document.createElement('div'); inner.id = 'new-'+cssId(t.id);
+    const d = dispPx(t.size); inner.style.width=inner.style.height=d+'px';
+    box.appendChild(inner);
+    const w = document.createElement('div'); w.appendChild(box);
+    if(showCur){ const l=document.createElement('div'); l.className='miniLbl'; l.textContent='new'; w.appendChild(l); }
+    imgs.appendChild(w);
+  }
+  if(showCur){
+    const box = document.createElement('div'); box.className='imgBox';
+    const d = dispPx(t.size); box.style.width=box.style.height=d+'px';
+    if(t.cur){
+      const c2 = document.createElement('canvas');
+      c2.width=t.cur.width; c2.height=t.cur.height;
+      c2.getContext('2d').drawImage(t.cur,0,0);
+      styleIconCanvas(c2, t.size);
+      box.appendChild(c2);
+    } else {
+      box.style.display='flex';
+      box.innerHTML = `<span style="font-family:var(--mono);font-size:9px;color:var(--dim);text-align:center">${t.curMissing?'new<br>layer':'legacy<br>(no view)'}</span>`;
+    }
+    const w = document.createElement('div'); w.appendChild(box);
+    if(showNew){ const l=document.createElement('div'); l.className='miniLbl'; l.textContent='current'; w.appendChild(l); }
+    imgs.appendChild(w);
+  }
+  tile.appendChild(imgs);
+
+  const cap = document.createElement('div'); cap.className='cap';
+  cap.innerHTML = `<b>${t.group.startsWith('PNG')?t.file:(t.note||t.size+'px')}</b><br>${t.size}×${t.size}`;
+  tile.appendChild(cap);
+  tile.addEventListener('click', ()=>{ selection={kind:'target',id:t.id}; syncControls(); renderGrid(); });
+  return tile;
+}
+
+/* ============================== write ============================== */
+async function writeAll(){
+  if(!dirHandle) return;
+  const perm = await dirHandle.requestPermission({mode:'readwrite'});
+  if(perm!=='granted'){ status('write permission denied'); return; }
+  $('btnWrite').disabled = true;
+  const report = [];
+  try{
+    /* PNG files */
+    const pngTargets = targets.filter(t=>t.id.startsWith('png:'));
+    for(const t of pngTargets){
+      status('rendering '+t.file+'…');
+      const c = await renderVariant(variantFor(t).v, t.size);
+      await writeFile(t.file, await canvasPng(c));
+      report.push(['ok', `${t.file} — ${t.size}×${t.size} written`]);
+    }
+    /* icon.ico */
+    if(targets.some(t=>t.id.startsWith('ico:'))){
+      status('building icon.ico…');
+      const layers = [];
+      for(const size of icoSizes){
+        const t = targets.find(x=>x.id==='ico:'+size);
+        layers.push({ size, canvas: await renderVariant(variantFor(t).v, size) });
+      }
+      await writeFile('icon.ico', await buildIco(layers));
+      report.push(['ok', `icon.ico — layers ${icoSizes.join(', ')} (32px first — Tauri window icon; BMP <256, PNG 256)`]);
+    }
+    /* icon.icns */
+    if(targets.some(t=>t.id.startsWith('icns:'))){
+      status('building icon.icns…');
+      const entries = [];
+      for(const type of ICNS_WRITE_SET){
+        const t = targets.find(x=>x.id==='icns:'+type);
+        entries.push({ type, canvas: await renderVariant(variantFor(t).v, ICNS_TYPES[type]) });
+      }
+      await writeFile('icon.icns', await buildIcns(entries));
+      report.push(['ok', `icon.icns — ${ICNS_WRITE_SET.join(' ')} (PNG chunks)`]);
+    }
+    /* config alongside icons */
+    await writeFile('icon-studio.config.json',
+      new TextEncoder().encode(JSON.stringify(state, null, 2)));
+    report.push(['ok', 'icon-studio.config.json — design settings saved']);
+
+    /* verify by re-reading */
+    status('verifying…');
+    for(const t of targets.filter(x=>x.id.startsWith('png:'))){
+      const u8 = new Uint8Array(await (await (await dirHandle.getFileHandle(t.file)).getFile()).arrayBuffer());
+      const d = pngDims(u8);
+      report.push([d.w===t.size?'ok':'bad', `verify ${t.file}: ${d.w}×${d.h}${d.w===t.size?' ✓':' ✗ expected '+t.size}`]);
+    }
+    try{
+      const u8 = new Uint8Array(await (await (await dirHandle.getFileHandle('icon.ico')).getFile()).arrayBuffer());
+      const sizes = parseIco(u8).map(e=>e.w);
+      const lead = sizes[0]===32 ? ' ✓ 32px leads (window icon)' : ' ✗ first entry is '+sizes[0]+'px — taskbar will blur!';
+      report.push([sizes[0]===32?'ok':'bad', `verify icon.ico: ${sizes.length} entries, order ${sizes.join(', ')}${lead}`]);
+    }catch(e){}
+    try{
+      const u8 = new Uint8Array(await (await (await dirHandle.getFileHandle('icon.icns')).getFile()).arrayBuffer());
+      const types = parseIcns(u8).map(c=>c.type);
+      report.push(['ok', `verify icon.icns: chunks ${types.join(' ')} ✓`]);
+    }catch(e){}
+
+    status('done — see report. Remember: ie4uinit.exe -show to bust the Windows icon cache.');
+    /* refresh "current" thumbnails */
+    await openFolder(dirHandle);
+  }catch(e){
+    console.error(e);
+    report.push(['bad', 'ERROR: '+e.message]);
+    status('write failed: '+e.message);
+  }
+  const rp = $('report');
+  rp.className = 'show';
+  rp.innerHTML = report.map(([cls,msg])=>`<span class="${cls}">${msg}</span>`).join('\n');
+  $('btnWrite').disabled = false;
+}
+
+async function writeFile(name, u8){
+  const fh = await dirHandle.getFileHandle(name, {create:true});
+  const w = await fh.createWritable();
+  await w.write(u8); await w.close();
+}
+
+/* ============================== init ============================== */
+async function init(){
+  measureAnchorInk();
+  loadLocal();
+  /* header logo = live small variant */
+  const refreshLogo = ()=>{ $('logoMark').outerHTML = buildSvg(state.small, 26).replace('<svg ','<svg id="logoMark" '); };
+  refreshLogo();
+
+  if(!window.showDirectoryPicker){
+    $('dropNote').innerHTML = '<div class="big">Browser not supported</div>' +
+      'This tool needs the File System Access API. Open it in <b>Chrome</b> or <b>Edge</b> ' +
+      '(double-click the file, or serve it with <code>npx serve tools</code>).';
+    $('btnOpen').disabled = true;
+    return;
+  }
+  wireControls();
+  syncControls();
+
+  $('btnOpen').addEventListener('click', async ()=>{
+    try{ await openFolder(await window.showDirectoryPicker({mode:'readwrite'})); }
+    catch(e){ if(e.name!=='AbortError') status('open failed: '+e.message); }
+  });
+  $('btnWrite').addEventListener('click', writeAll);
+
+  try{
+    const prev = await idbGet('dir');
+    if(prev){
+      $('btnReopen').style.display = '';
+      $('btnReopen').addEventListener('click', async ()=>{
+        try{
+          const p = await prev.requestPermission({mode:'readwrite'});
+          if(p==='granted') await openFolder(prev);
+          else status('permission not granted for previous folder');
+        }catch(e){ status('reopen failed: '+e.message); }
+      });
+    }
+  }catch(e){}
+}
+init();
+</script>
+</body>
+</html>

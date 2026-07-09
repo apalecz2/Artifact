@@ -1,0 +1,45 @@
+{
+  "large": {
+    "bg": {
+      "on": true,
+      "color": "#e8e5da",
+      "radius": 20.5
+    },
+    "guides": {
+      "on": true,
+      "color": "#16202e",
+      "opacity": 35,
+      "width": 4,
+      "maskR": 66
+    },
+    "anchor": {
+      "color": "#16202e",
+      "size": 51.5,
+      "dx": 0,
+      "dy": 0
+    }
+  },
+  "small": {
+    "bg": {
+      "on": true,
+      "color": "#E8E5DA",
+      "radius": 20.5
+    },
+    "guides": {
+      "on": false,
+      "color": "#16202E",
+      "opacity": 28,
+      "width": 4,
+      "maskR": 0
+    },
+    "anchor": {
+      "color": "#16202E",
+      "size": 76,
+      "dx": 0,
+      "dy": 0
+    }
+  },
+  "threshold": 64,
+  "overrides": {},
+  "supersample": true
+}
