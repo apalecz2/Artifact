@@ -56,8 +56,8 @@
 ### What do I need for 1.0.0?
 - monochrome app icon next to name in top left of side bar 
 - proof read all text
+    - update app.tsx to match the text on the website to remove the em dash wording
 - note on poor quality extractions -- "try fixing the OCR on the left for better results"
-- gray out model selection area & ocr area in settings
 - re running set up(?)
 
 

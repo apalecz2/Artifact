@@ -6,20 +6,35 @@ import { deleteAllSessions } from '../features/sessions/sessionActions';
 import ConfirmDialog from '../components/ConfirmDialog';
 import Icon from '../components/Icon';
 
-function Section({ title, description, children }: {
+function Section({ title, description, comingSoon = false, children }: {
     title: string;
     description?: string;
+    comingSoon?: boolean;
     children: React.ReactNode;
 }) {
     return (
         <section className="flex flex-col gap-4">
             <div>
-                <h2 className="font-headline-lg text-headline-lg text-on-surface">{title}</h2>
+                <div className="flex items-center gap-3">
+                    <h2 className="font-headline-lg text-headline-lg text-on-surface">{title}</h2>
+                    {comingSoon && (
+                        <span className="flex items-center gap-1 px-2.5 py-1 rounded-full border border-outline-variant bg-surface-container-high font-label-sm text-label-sm text-on-surface-variant">
+                            <Icon name="schedule" size={14} />
+                            Coming soon
+                        </span>
+                    )}
+                </div>
                 {description && (
                     <p className="font-body-md text-body-md text-on-surface-variant mt-1 max-w-2xl">{description}</p>
                 )}
             </div>
-            {children}
+            {comingSoon ? (
+                <div className="opacity-40 pointer-events-none select-none" aria-disabled="true">
+                    {children}
+                </div>
+            ) : (
+                children
+            )}
         </section>
     );
 }
@@ -174,6 +189,7 @@ export default function Settings(): React.ReactElement {
                 <Section
                     title="AI model"
                     description="Override the model paths installed by setup. Leave blank to use the downloaded model. Saved paths take effect on next server start."
+                    comingSoon
                 >
                     <div className="rounded-[10px] border border-outline-variant bg-surface-container p-6 flex flex-col gap-6">
                         <PathField
@@ -209,7 +225,7 @@ export default function Settings(): React.ReactElement {
                 </Section>
 
                 {/* ── OCR ── */}
-                <Section title="OCR" description="Optical character recognition settings.">
+                <Section title="OCR" description="Optical character recognition settings." comingSoon>
                     <div className="rounded-[10px] border border-outline-variant bg-surface-container divide-y divide-outline-variant">
                         <SettingRow
                             label="Language"
