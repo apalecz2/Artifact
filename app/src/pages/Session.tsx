@@ -77,8 +77,10 @@ function SessionContent(): React.ReactElement {
     // Which OCR regions are drawn on the source image: 'all' (every region),
     // 'issues' (only lower-confidence ones), or 'none' (overlay hidden).
     const [overlayMode, setOverlayMode] = useState<'all' | 'issues' | 'none'>('all');
-    const [viewTransform, setViewTransform] = useState({ scale: 1, x: 0, y: 0 });
-    const [minZoom, setMinZoom] = useState(0.5);
+    // Viewer zoom, relative to the fitted size (1 = the image exactly fits the
+    // pane). The viewer owns pan/centering internally and reports zoom changes
+    // (wheel, fit, zoom-to-box) back through setZoom so the toolbar stays in sync.
+    const [zoom, setZoom] = useState(1);
     const viewerRef = useRef<DocumentViewerHandle>(null);
     const [pageInputValue, setPageInputValue] = useState('1');
 
@@ -180,7 +182,7 @@ function SessionContent(): React.ReactElement {
         setSelectedCell(null);
         setSelectedWordId(null);
         setProvenanceHighlightBox(null);
-        setViewTransform({ scale: 1, x: 0, y: 0 });
+        setZoom(1);
     };
 
     // `boostTokens` is set by the truncation banner's Retry to re-run with the full
@@ -290,10 +292,8 @@ function SessionContent(): React.ReactElement {
                 provenanceHighlightBox={provenanceHighlightBox}
                 activeTool={activeTool}
                 setActiveTool={setActiveTool}
-                viewTransform={viewTransform}
-                setViewTransform={setViewTransform}
-                minZoom={minZoom}
-                setMinZoom={setMinZoom}
+                zoom={zoom}
+                setZoom={setZoom}
                 overlayMode={overlayMode}
                 setOverlayMode={setOverlayMode}
                 totalPages={totalPages}

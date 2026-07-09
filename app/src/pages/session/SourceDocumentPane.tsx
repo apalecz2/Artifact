@@ -1,5 +1,5 @@
 import React from 'react';
-import DocumentViewer from '../../components/DocumentViewer';
+import DocumentViewer, { MIN_ZOOM, MAX_ZOOM, ZOOM_STEP } from '../../components/DocumentViewer';
 import type { DocumentViewerHandle } from '../../components/DocumentViewer';
 import Icon from '../../components/Icon';
 import { HelpOverlay } from '../../components/HelpOverlay';
@@ -103,13 +103,12 @@ interface SourceDocumentPaneProps {
     onWordClick: (wordId: string) => void;
     provenanceHighlightBox: BoundingBox | null;
 
-    // Tool + viewport
+    // Tool + viewport. Zoom is relative to the fitted size (1 = the image
+    // exactly fits the pane); the viewer clamps it to [MIN_ZOOM, MAX_ZOOM].
     activeTool: 'draw' | 'pan';
     setActiveTool: (tool: 'draw' | 'pan') => void;
-    viewTransform: { scale: number; x: number; y: number };
-    setViewTransform: React.Dispatch<React.SetStateAction<{ scale: number; x: number; y: number }>>;
-    minZoom: number;
-    setMinZoom: (z: number) => void;
+    zoom: number;
+    setZoom: (zoom: number) => void;
 
     // OCR region overlay: 'all' shows every box, 'issues' dims high-confidence
     // ones to reduce clutter, 'none' hides the overlay entirely.
@@ -131,7 +130,7 @@ export function SourceDocumentPane(props: SourceDocumentPaneProps): React.ReactE
         fileUrl, activePage, viewerRef,
         addWord, editWord, deleteWord, editingState, setEditingState,
         highlightedWordId, setHighlightedWordId, onWordClick, provenanceHighlightBox,
-        activeTool, setActiveTool, viewTransform, setViewTransform, minZoom, setMinZoom,
+        activeTool, setActiveTool, zoom, setZoom,
         overlayMode, setOverlayMode,
         totalPages, activePageIndex, goToPage, pageInputValue, setPageInputValue,
     } = props;
@@ -225,9 +224,8 @@ export function SourceDocumentPane(props: SourceDocumentPaneProps): React.ReactE
                         setHighlightedWordId={setHighlightedWordId}
                         onWordClick={onWordClick}
                         activeTool={activeTool}
-                        transform={viewTransform}
-                        setTransform={setViewTransform}
-                        onMinScaleChange={setMinZoom}
+                        zoom={zoom}
+                        onZoomChange={setZoom}
                         provenanceHighlightBox={provenanceHighlightBox}
                         onLoadError={() => setImageLoadFailed(true)}
                         overlayMode={overlayMode}
@@ -314,12 +312,15 @@ export function SourceDocumentPane(props: SourceDocumentPaneProps): React.ReactE
                             </div>
                         )}
 
-                        {/* Zoom Controls */}
+                        {/* Zoom Controls — zoom is relative to the fitted size, so
+                            100% always means "fits the pane" and 50%/200% mean half/
+                            double that, regardless of window size. */}
                         <div className="flex shrink-0 items-center gap-1">
                             <button
                                 aria-label="Zoom out"
                                 className={iconBtnClass}
-                                onClick={() => viewerRef.current?.zoomTo(viewTransform.scale - 0.25)}
+                                disabled={zoom <= MIN_ZOOM}
+                                onClick={() => setZoom(Math.max(MIN_ZOOM, zoom - ZOOM_STEP))}
                                 type="button"
                             >
                                 <Icon name="zoom_out" size={18} fill={0} />
@@ -327,19 +328,23 @@ export function SourceDocumentPane(props: SourceDocumentPaneProps): React.ReactE
 
                             <input
                                 type="range"
-                                min={minZoom}
-                                max="4"
+                                min={MIN_ZOOM}
+                                max={MAX_ZOOM}
                                 step="0.05"
-                                value={viewTransform.scale}
-                                onChange={(e) => viewerRef.current?.zoomTo(parseFloat(e.target.value))}
+                                value={zoom}
+                                onChange={(e) => setZoom(parseFloat(e.target.value))}
                                 className="hidden w-20 accent-primary cursor-pointer sm:block"
-                                title={`Zoom: ${Math.round(viewTransform.scale * 100)}%`}
+                                aria-label="Zoom level"
                             />
+                            <span className="hidden w-10 select-none text-center text-xs tabular-nums text-on-surface-variant sm:block">
+                                {Math.round(zoom * 100)}%
+                            </span>
 
                             <button
                                 aria-label="Zoom in"
                                 className={iconBtnClass}
-                                onClick={() => viewerRef.current?.zoomTo(viewTransform.scale + 0.25)}
+                                disabled={zoom >= MAX_ZOOM}
+                                onClick={() => setZoom(Math.min(MAX_ZOOM, zoom + ZOOM_STEP))}
                                 type="button"
                             >
                                 <Icon name="zoom_in" size={18} fill={0} />

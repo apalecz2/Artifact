@@ -45,7 +45,7 @@
 
 
 ### Website:
-- Product preview -- make more like the actual app (use screenshot?)
+- Product preview -- make more like the actual app -- use gif of working app
 - Lies? Check hallucinations against actual app and ground it
 
 
@@ -60,6 +60,8 @@
 - note on poor quality extractions -- "try fixing the OCR on the left for better results"
 - re running set up(?)
 
+
+- the saved in app x button can be hidden and not visible
 
 
 

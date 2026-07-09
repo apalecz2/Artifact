@@ -44,8 +44,8 @@ function renderViewer(props: Partial<React.ComponentProps<typeof DocumentViewer>
             setHighlightedWordId={setHighlightedWordId}
             onWordClick={onWordClick}
             activeTool="draw"
-            transform={{ scale: 1, x: 0, y: 0 }}
-            setTransform={vi.fn()}
+            zoom={1}
+            onZoomChange={vi.fn()}
             {...props}
         />,
     );

@@ -3,18 +3,20 @@ import type { OcrWord, BoundingBox } from '../features/ocr/types';
 
 export interface DocumentViewerHandle {
     fitToScreen: () => void;
-    zoomTo: (scale: number) => void;
     /** Center the given box in the viewport, zooming in (never out) just enough
      *  to make it comfortably visible. Used to bring a newly-selected cell's
      *  source region into view when it's off-screen or too small to read. */
     zoomToBox: (box: BoundingBox) => void;
 }
 
-// Default lower zoom bound for panes large enough to hold the fitted image. When
-// the pane is smaller than that, the bound drops to the fit scale so the image can
-// always be shrunk to fit (see updateZoomBounds).
-const MIN_SCALE = 0.5;
-const MAX_SCALE = 4;
+// Zoom is relative to the fitted image, not to its natural pixels: 1 means the
+// page exactly fits the visible pane (with FIT_INSET breathing room), 0.5 means
+// half that size, 2 double. Because the fit is recomputed from the live pane
+// size on every render, a given zoom value always means the same thing no
+// matter how the window or split divider is resized.
+export const MIN_ZOOM = 0.5;
+export const MAX_ZOOM = 2;
+export const ZOOM_STEP = 0.25;
 const FIT_INSET = 16; // breathing room around the fitted image, in px
 
 // Word-level confidence at/above this is treated as "high" and, under the
@@ -27,6 +29,8 @@ const OVERLAY_HIGH_CONFIDENCE = 85;
 // occupy, so it's clearly readable but keeps surrounding context visible.
 const ZOOM_TO_BOX_TARGET_FRACTION = 0.35;
 
+const clampZoom = (z: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z));
+
 interface DocumentViewerProps {
     fileUrl: string;
     words: OcrWord[];
@@ -37,10 +41,11 @@ interface DocumentViewerProps {
     setHighlightedWordId: (id: string | null) => void;
     onWordClick?: (wordId: string) => void;
     activeTool: 'draw' | 'pan';
-    transform: { scale: number; x: number; y: number };
-    setTransform: React.Dispatch<React.SetStateAction<{ scale: number; x: number; y: number }>>;
+    /** Zoom relative to the fitted size (1 = fits the pane); see MIN_ZOOM. */
+    zoom: number;
+    /** Reports zoom changes made inside the viewer (wheel, fit, zoomToBox). */
+    onZoomChange: (zoom: number) => void;
     provenanceHighlightBox?: BoundingBox | null;
-    onMinScaleChange?: (minScale: number) => void;
     /** Fired when the source image fails to load (e.g. the file was moved/deleted). */
     onLoadError?: () => void;
     /** 'all' shows every OCR region at its normal ambient opacity; 'issues' dims
@@ -91,35 +96,35 @@ const DocumentViewer = forwardRef<DocumentViewerHandle, DocumentViewerProps>(fun
     setHighlightedWordId,
     onWordClick,
     activeTool,
-    transform,
-    setTransform,
+    zoom,
+    onZoomChange,
     provenanceHighlightBox,
-    onMinScaleChange,
     onLoadError,
     overlayMode = 'all',
 }: DocumentViewerProps, ref) {
     const [naturalSize, setNaturalSize] = useState({ width: 0, height: 0 });
+    // Live pane size, tracked by a ResizeObserver. Part of the view model: the
+    // on-screen transform is re-derived from it, which is what keeps the image
+    // correctly sized and positioned through any window/divider resize.
+    const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
+    // The image-space point (in natural-pixel coordinates) pinned to the middle
+    // of the pane. Panning moves it; zooming (about a focal point) re-derives it.
+    // Storing the view as (zoom, center) rather than a raw pixel transform means
+    // a resize needs no correction at all — the derived transform below simply
+    // re-centers the same content at the same relative size.
+    const [center, setCenter] = useState({ x: 0, y: 0 });
     // Whether the loaded document is dark overall, so highlights contrast with it.
     const [isImageDark, setIsImageDark] = useState(false);
     const svgRef = useRef<SVGSVGElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const imgRef = useRef<HTMLImageElement>(null);
 
-    // Current lower zoom bound. Dynamic: never above MIN_SCALE, but lowered to the
-    // fit scale (and never above the current scale) so the image can always be
-    // shrunk to fit the pane and the slider thumb stays truthful after a resize.
-    const minScaleRef = useRef(MIN_SCALE);
-    // Latest scale, read inside stable callbacks without making them stale.
-    const scaleRef = useRef(transform.scale);
-    scaleRef.current = transform.scale;
-
     // Track active panning drag
     const [isDragging, setIsDragging] = useState(false);
 
-    // Whether the initial fit-to-screen has been computed and committed for the
-    // current image. Until then the image is kept hidden (and un-transitioned) so
-    // the user never sees it pop in at scale 1 and then animate down to the fit
-    // scale — they only ever see it already fitted.
+    // Whether the image is fully measured and fitted for the current src. Until
+    // then it's kept hidden (and un-transitioned) so the user never sees it pop
+    // in at the wrong scale — the first visible frame is already fitted.
     const [isReady, setIsReady] = useState(false);
 
     // Drawing State
@@ -130,61 +135,91 @@ const DocumentViewer = forwardRef<DocumentViewerHandle, DocumentViewerProps>(fun
     // Context Menu State
     const [contextMenu, setContextMenu] = useState<{ x: number, y: number, id: string, text: string } | null>(null);
 
-    // --- Pan & Zoom Logic ---
+    // --- Derived view transform ---
+    // The scale that makes the whole image fit the pane (null until both the
+    // image and the pane have been measured). zoom multiplies this, so zoom 0.5
+    // is always exactly half the fitted size for the *current* pane.
+    const fitScale =
+        naturalSize.width > 0 &&
+        containerSize.width > FIT_INSET * 2 &&
+        containerSize.height > FIT_INSET * 2
+            ? Math.min(
+                (containerSize.width - FIT_INSET * 2) / naturalSize.width,
+                (containerSize.height - FIT_INSET * 2) / naturalSize.height,
+            )
+            : null;
+    const scale = fitScale !== null ? clampZoom(zoom) * fitScale : 1;
+    const offsetX = containerSize.width / 2 - center.x * scale;
+    const offsetY = containerSize.height / 2 - center.y * scale;
+
+    // Snapshot of the current view, read inside stable event handlers (wheel,
+    // drag, imperative calls) without making them stale or re-attached.
+    const viewRef = useRef({ zoom, fitScale, scale, cw: 0, ch: 0, center });
+    viewRef.current = { zoom, fitScale, scale, cw: containerSize.width, ch: containerSize.height, center };
+    const onZoomChangeRef = useRef(onZoomChange);
+    onZoomChangeRef.current = onZoomChange;
+
+    // --- Pan & Zoom interactions ---
+    // Keep the pane size in sync (split divider, window resize). Only state is
+    // updated here; the transform correction falls out of the derivation above.
+    useEffect(() => {
+        const container = containerRef.current;
+        if (!container) return;
+        const measure = () => setContainerSize({ width: container.clientWidth, height: container.clientHeight });
+        measure();
+        const ro = new ResizeObserver(measure);
+        ro.observe(container);
+        return () => ro.disconnect();
+    }, []);
+
     useEffect(() => {
         const container = containerRef.current;
         if (!container) return;
 
         const handleWheel = (e: WheelEvent) => {
             e.preventDefault();
-            const zoomSensitivity = 0.002;
-            const delta = -e.deltaY * zoomSensitivity;
+            const { zoom, fitScale, scale, cw, ch, center } = viewRef.current;
+            if (fitScale === null) return;
+            const newZoom = clampZoom(zoom * Math.exp(-e.deltaY * 0.002));
+            if (newZoom === zoom) return;
+            const newScale = newZoom * fitScale;
 
-            // Focal point of the zoom: cursor position relative to the container's
-            // top-left (the transform-origin), so the point under the cursor stays put.
+            // Keep the image point under the cursor stationary: express the
+            // cursor relative to the pane center, find the image point there,
+            // and choose the new center so that point maps back to the cursor.
             const rect = container.getBoundingClientRect();
-            const focalX = e.clientX - rect.left;
-            const focalY = e.clientY - rect.top;
-
-            setTransform(prev => {
-                const newScale = Math.min(MAX_SCALE, Math.max(minScaleRef.current, prev.scale * (1 + delta)));
-                const ratio = newScale / prev.scale;
-                return {
-                    scale: newScale,
-                    x: focalX - ratio * (focalX - prev.x),
-                    y: focalY - ratio * (focalY - prev.y),
-                };
+            const fx = e.clientX - rect.left - cw / 2;
+            const fy = e.clientY - rect.top - ch / 2;
+            setCenter({
+                x: center.x + fx / scale - fx / newScale,
+                y: center.y + fy / scale - fy / newScale,
             });
+            onZoomChangeRef.current(newZoom);
         };
 
         container.addEventListener('wheel', handleWheel, { passive: false });
         return () => container.removeEventListener('wheel', handleWheel);
-    }, [setTransform]);
+    }, []);
 
     useEffect(() => {
+        if (!isDragging) return;
+
         const handleGlobalMouseMove = (e: MouseEvent) => {
-            if (!isDragging) return;
-            setTransform(prev => ({
-                ...prev,
-                x: prev.x + e.movementX,
-                y: prev.y + e.movementY
+            const { scale } = viewRef.current;
+            setCenter(prev => ({
+                x: prev.x - e.movementX / scale,
+                y: prev.y - e.movementY / scale,
             }));
         };
+        const handleGlobalMouseUp = () => setIsDragging(false);
 
-        const handleGlobalMouseUp = () => {
-            setIsDragging(false);
-        };
-
-        if (isDragging) {
-            window.addEventListener('mousemove', handleGlobalMouseMove);
-            window.addEventListener('mouseup', handleGlobalMouseUp);
-        }
-
+        window.addEventListener('mousemove', handleGlobalMouseMove);
+        window.addEventListener('mouseup', handleGlobalMouseUp);
         return () => {
             window.removeEventListener('mousemove', handleGlobalMouseMove);
             window.removeEventListener('mouseup', handleGlobalMouseUp);
         };
-    }, [isDragging, setTransform]);
+    }, [isDragging]);
 
     const handleContainerMouseDown = (e: React.MouseEvent) => {
         // Trigger pan on Middle-click OR Left-click if 'pan' tool is active
@@ -194,125 +229,48 @@ const DocumentViewer = forwardRef<DocumentViewerHandle, DocumentViewerProps>(fun
         }
     };
 
-    // The scale that fits the whole image within the container (with margins), or
-    // null if not measurable yet.
-    const getFitScale = useCallback((): number | null => {
-        const container = containerRef.current;
-        const img = imgRef.current;
-        if (!container || !img || !img.offsetWidth || !img.offsetHeight) return null;
-        return Math.min(
-            (container.clientWidth - FIT_INSET * 2) / img.offsetWidth,
-            (container.clientHeight - FIT_INSET * 2) / img.offsetHeight,
-        );
-    }, []);
-
-    // Recompute the lower zoom bound for the current pane size and report it up so
-    // the slider's range tracks it. Only touches the bound — never the transform —
-    // so resizing the pane does not move or rescale the image.
-    const updateZoomBounds = useCallback(() => {
-        const fit = getFitScale();
-        if (fit === null) return;
-        const newMin = Math.min(MIN_SCALE, fit, scaleRef.current);
-        if (newMin !== minScaleRef.current) {
-            minScaleRef.current = newMin;
-            onMinScaleChange?.(newMin);
-        }
-    }, [getFitScale, onMinScaleChange]);
-
-    // Scale the image so it fits entirely within the container, then center it.
-    // With a top-left transform-origin, centering means computing the corner offset
-    // explicitly. The fit scale is allowed below MIN_SCALE so a small pane truly fits.
+    // Reset to the fitted view: whole image visible, centered, zoom 1.
     const fitToScreen = useCallback(() => {
-        const container = containerRef.current;
-        const img = imgRef.current;
-        const fit = getFitScale();
-        if (!container || !img || fit === null) return;
-
-        const cw = container.clientWidth;
-        const ch = container.clientHeight;
-        const scale = Math.min(MAX_SCALE, fit);
-        minScaleRef.current = Math.min(MIN_SCALE, scale);
-        onMinScaleChange?.(minScaleRef.current);
-        setTransform({
-            scale,
-            x: (cw - img.offsetWidth * scale) / 2,
-            y: (ch - img.offsetHeight * scale) / 2,
-        });
-    }, [getFitScale, onMinScaleChange, setTransform]);
-
-    // Zoom to a target scale about the center of the visible area (used by the
-    // slider and zoom buttons), keeping that center point fixed.
-    const zoomTo = useCallback((target: number) => {
-        const container = containerRef.current;
-        if (!container) return;
-        const focalX = container.clientWidth / 2;
-        const focalY = container.clientHeight / 2;
-        setTransform(prev => {
-            const newScale = Math.min(MAX_SCALE, Math.max(minScaleRef.current, target));
-            const ratio = newScale / prev.scale;
-            return {
-                scale: newScale,
-                x: focalX - ratio * (focalX - prev.x),
-                y: focalY - ratio * (focalY - prev.y),
-            };
-        });
-    }, [setTransform]);
+        setCenter({ x: naturalSize.width / 2, y: naturalSize.height / 2 });
+        onZoomChangeRef.current(1);
+    }, [naturalSize]);
 
     // Center `box` in the viewport, zooming in only as much as needed to make it
     // readable — never zooming out, so a user who's already zoomed in past that
     // point just gets re-centered instead of yanked back out.
     const zoomToBox = useCallback((box: BoundingBox) => {
-        const container = containerRef.current;
-        if (!container || box.width <= 0 || box.height <= 0) return;
-        const cw = container.clientWidth;
-        const ch = container.clientHeight;
-
+        const { zoom, fitScale, cw, ch } = viewRef.current;
+        if (fitScale === null || box.width <= 0 || box.height <= 0) return;
         const desiredScale = Math.min(
             (cw * ZOOM_TO_BOX_TARGET_FRACTION) / box.width,
             (ch * ZOOM_TO_BOX_TARGET_FRACTION) / box.height,
         );
+        setCenter({ x: box.left + box.width / 2, y: box.top + box.height / 2 });
+        onZoomChangeRef.current(clampZoom(Math.max(zoom, desiredScale / fitScale)));
+    }, []);
 
-        setTransform(prev => {
-            const newScale = Math.min(MAX_SCALE, Math.max(prev.scale, desiredScale));
-            const centerX = box.left + box.width / 2;
-            const centerY = box.top + box.height / 2;
-            return {
-                scale: newScale,
-                x: cw / 2 - centerX * newScale,
-                y: ch / 2 - centerY * newScale,
-            };
-        });
-    }, [setTransform]);
+    useImperativeHandle(ref, () => ({ fitToScreen, zoomToBox }), [fitToScreen, zoomToBox]);
 
-    useImperativeHandle(ref, () => ({ fitToScreen, zoomTo, zoomToBox }), [fitToScreen, zoomTo, zoomToBox]);
-
-    // A new image (e.g. switching pages) must be re-fitted, so hide it again until
-    // its onLoad recomputes the fit. Resetting here — rather than in onLoad — avoids
-    // briefly showing the stale, already-fitted previous image under the new src.
+    // A new image (e.g. switching pages) must be re-measured and re-fitted, so
+    // hide it again until its onLoad runs. Resetting here — rather than in
+    // onLoad — avoids briefly showing the stale previous image under the new src.
     useEffect(() => {
         setIsReady(false);
     }, [fileUrl]);
-
-    // Keep the zoom range in sync with the pane size as the split divider moves.
-    useEffect(() => {
-        const container = containerRef.current;
-        if (!container) return;
-        const ro = new ResizeObserver(() => updateZoomBounds());
-        ro.observe(container);
-        return () => ro.disconnect();
-    }, [updateZoomBounds]);
 
     // --- Drawing Logic ---
     const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
         const { naturalWidth, naturalHeight } = e.currentTarget;
         setNaturalSize({ width: naturalWidth, height: naturalHeight });
         setIsImageDark(estimateImageDarkness(e.currentTarget));
-        fitToScreen();
-        // Reveal only after the fit transform has been committed and painted, so
-        // the first frame the user sees is already at the fit scale. Flipping
-        // isReady in a rAF (rather than synchronously here) guarantees the transform
-        // doesn't change in the same render that turns transitions back on, so the
-        // reveal is a clean fade — never an animated zoom from scale 1.
+        // Start every freshly-loaded image at the fitted view.
+        setCenter({ x: naturalWidth / 2, y: naturalHeight / 2 });
+        onZoomChangeRef.current(1);
+        // Reveal only after the fitted transform has been committed and painted,
+        // so the first frame the user sees is already at the fit size. Flipping
+        // isReady in a rAF (rather than synchronously here) guarantees the
+        // transform doesn't change in the same render that turns transitions back
+        // on, so the reveal is a clean fade — never an animated zoom.
         requestAnimationFrame(() => setIsReady(true));
     };
 
@@ -365,10 +323,10 @@ const DocumentViewer = forwardRef<DocumentViewerHandle, DocumentViewerProps>(fun
     };
 
     return (
-        <div 
+        <div
             ref={containerRef}
             onMouseDown={handleContainerMouseDown}
-            className={`relative flex h-full w-full flex-col items-center justify-center overflow-hidden bg-surface-container-low p-4 ${isDragging ? 'cursor-grabbing' : activeTool === 'pan' ? 'cursor-grab' : ''}`}
+            className={`relative h-full w-full overflow-hidden bg-surface-container-low ${isDragging ? 'cursor-grabbing' : activeTool === 'pan' ? 'cursor-grab' : ''}`}
         >
             {contextMenu && (
                 <>
@@ -400,9 +358,9 @@ const DocumentViewer = forwardRef<DocumentViewerHandle, DocumentViewerProps>(fun
             <div
                 className="absolute left-0 top-0 shadow-sm shadow-black/10"
                 style={{
-                    transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
+                    transform: `translate(${offsetX}px, ${offsetY}px) scale(${scale})`,
                     transformOrigin: '0 0',
-                    opacity: isReady ? 1 : 0,
+                    opacity: isReady && fitScale !== null ? 1 : 0,
                     // No transition until the initial fit is in place, so applying that
                     // fit can't animate; afterwards, fade in and keep the smooth zoom.
                     transition: isReady
@@ -417,11 +375,9 @@ const DocumentViewer = forwardRef<DocumentViewerHandle, DocumentViewerProps>(fun
                     crossOrigin="anonymous"
                     onLoad={handleImageLoad}
                     onError={onLoadError}
-                    // Render at the image's intrinsic size; the transform scale handles
-                    // all sizing. A viewport-relative cap (e.g. max-h-[80vh]) would make
-                    // the layout size — and therefore the meaning of a given zoom scale —
-                    // change when the window is resized, which shifted the fit/min bounds
-                    // and stopped the user from zooming out to 50% after a resize.
+                    // Render at the image's intrinsic size; the derived transform
+                    // handles all sizing. Any CSS cap here would make the layout size
+                    // disagree with naturalSize, which the fit math relies on.
                     className="block w-auto max-w-none pointer-events-none select-none"
                 />
 
