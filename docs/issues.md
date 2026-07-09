@@ -9,10 +9,9 @@
 
 
 ### Session:
-- Info modals should open on their corresponding side
-- Provinence matching should use the better(?) approach of walking through the OCR locations and determining the grid algorithmically, then defining indexes based on that, not reading order which doesn't handle multiline cells well
 - Sliding the slider over the image is laggy, compared to sliding it not over the image
-- 
+- Info modal background / focus highlight looks off and is square and doesn't fit the area right.
+    - Should probably overlay that entire side of session
 
 
 
@@ -36,7 +35,6 @@
 
 ### Misc:
 
-- Fix image zoom issues
 - Testing coverage and documentation
 - npm ci from e2e ? doesn't work?
 - test pdfium cargo test 
@@ -174,10 +172,25 @@ Added excel export support
 
 4. **Grid-based matching as an alternative to sequence matching** (infer column x-ranges /
    row y-ranges from OCR boxes to place links by grid index rather than sequence position).
-   - **Implemented** as `gridMatchPass` — a cross-check *after* the sequence matcher, not a
-     replacement. See Provenance #2/#3 above.
+   - **Implemented twice, in stages:** first as `gridMatchPass`, a cross-check *after* the
+     sequence matcher; now fully, as the grid-first primary matcher (see #5 below) with the
+     sequence walk demoted to fallback.
 
-5. **An exact-only match marked near-perfect cells "completely unverified"** — e.g.
+5. **Provenance matching should determine the grid algorithmically, not rely on reading
+   order (which doesn't handle multiline cells well).**
+   - **Resolved:** Stage 2a is now grid-first. Column bands are detected as whitespace
+     channels (justification-agnostic; escalating crossing tolerance so a title line can't
+     erase a real gap; the TSV's own column count anchors how many separators to pick), TSV
+     rows are DP-aligned to visual lines by per-column content (a row can span wrapped
+     lines, noise lines are skipped, an OCR-dropped row stays unassigned rather than
+     stealing a duplicate from the next row), and each cell matches only unclaimed words in
+     its own row×column region. Wrapped multiline cells — whose words interleave with other
+     columns in reading order and could never form a contiguous run — now match exactly.
+     The reading-order walk remains as the fallback primary (single-column output,
+     non-tabular layout, or a grid that places <30% of cells), and the fuzzy gap pass +
+     band-based grid cross-check remain as recovery passes. See design.md §6 4a.
+
+6. **An exact-only match marked near-perfect cells "completely unverified"** — e.g.
    "Calc for eng I" vs OCR's "Calc for eng |" came back unverified despite being one char off.
    - Resolved with the fuzzy second pass (`fuzzyMatchPass`). After the exact reading-order
      walk, each still-unmatched cell is matched against the OCR words bounded by its nearest

@@ -116,11 +116,9 @@ describe('matchCellsToOcr — degenerate inputs', () => {
 
 describe('matchCellsToOcr — grid cross-check pass (F2)', () => {
     // The OCR words for the last row arrive in the array in swapped reading order
-    // (Y before B), so the linear cursor walk grabs B for the first column and then
-    // has nothing left in-window for the second column — Y is left unmatched, and the
-    // fuzzy gap search (bounded above by B's word, with no following match) can't place
-    // it either. Only the grid pass, anchoring Y's column from the header/row-1 cells
-    // above it and its row band from the matched B beside it, recovers it.
+    // (Y before B). The clean two-column geometry means the grid-first matcher places
+    // every cell spatially, immune to the array-order swap that used to desync the
+    // cursor walk.
     it('recovers a reading-order-desynced cell from its row and column anchors', () => {
         const H1 = word('H1', 0, 0);
         const H2 = word('H2', 100, 0);
@@ -149,6 +147,28 @@ describe('matchCellsToOcr — grid cross-check pass (F2)', () => {
         expect(prov[2][1].matchStatus).toBe('unmatched');
     });
 
+    it('triangulates via the band-based pass when column geometry is too messy for channels', () => {
+        // Columns horizontally overlap (A reaches into column 1's x-range, Y starts
+        // inside column 0's), so no whitespace channel exists and the grid-first
+        // matcher bows out. The walk then desyncs on the swapped last row (grabs B,
+        // leaving Y with nothing in-window), and only the band-based cross-check —
+        // row band from the matched B, column band from H2/X above — recovers Y.
+        const H1 = word('H1', 0, 0, 60);
+        const H2 = word('H2', 80, 0, 60);
+        const A  = word('A', 0, 20, 90);
+        const X  = word('X', 100, 20, 40);
+        const Y  = word('Y', 70, 40, 70);
+        const B  = word('B', 0, 40, 60);
+        const w = [H1, H2, A, X, Y, B];
+        const csv = [['H1', 'H2'], ['A', 'X'], ['B', 'Y']];
+
+        const prov = matchCellsToOcr(csv, w);
+
+        expect(prov[2][0].wordIds).toEqual([B.id]);
+        expect(prov[2][1].wordIds).toEqual([Y.id]);
+        expect(prov[2][1].matchStatus).toBe('matched');
+    });
+
     it('leaves a cell unmatched when nothing in its row∩column region matches', () => {
         // Grid bands exist (column 1 is anchored by H2/X, row 3 by B), but the only
         // free word in the intersection is unrelated, so the cell stays unmatched
@@ -164,6 +184,137 @@ describe('matchCellsToOcr — grid cross-check pass (F2)', () => {
         const prov = matchCellsToOcr(csv, w);
         expect(prov[2][1].matchStatus).toBe('unmatched');
         expect(prov[2][1].wordIds).toEqual([]);
+    });
+});
+
+describe('matchCellsToOcr — grid-first spatial matching', () => {
+    it('matches a wrapped multi-line cell whose words interleave with other columns', () => {
+        // "Linear Algebra and Applications" wraps: "Applications" sits on its own
+        // visual line *below* "3.0", so in reading order the cell's words are not
+        // contiguous and the cursor walk could never match them. The grid matcher
+        // buckets by column band and spans both lines.
+        const course       = word('Course', 0, 0, 60);
+        const credits      = word('Credits', 200, 0, 70);
+        const linear       = word('Linear', 0, 20, 50);
+        const algebra      = word('Algebra', 60, 20, 60);
+        const and          = word('and', 130, 20, 30);
+        const c30          = word('3.0', 200, 20, 30);
+        const applications = word('Applications', 0, 40, 110);
+        const physics      = word('Physics', 0, 60, 60);
+        const c40          = word('4.0', 200, 60, 30);
+        const w = [course, credits, linear, algebra, and, c30, applications, physics, c40];
+        const csv = [
+            ['Course', 'Credits'],
+            ['Linear Algebra and Applications', '3.0'],
+            ['Physics', '4.0'],
+        ];
+
+        const prov = matchCellsToOcr(csv, w, 70);
+
+        expect(prov[1][0].matchStatus).toBe('multi_word');
+        expect(prov[1][0].wordIds).toEqual([linear.id, algebra.id, and.id, applications.id]);
+        expect(prov[1][1].wordIds).toEqual([c30.id]);
+        expect(prov[2][0].wordIds).toEqual([physics.id]);
+        expect(prov[2][1].wordIds).toEqual([c40.id]);
+    });
+
+    it('keeps a row the OCR dropped unmatched instead of stealing its duplicate from the next row', () => {
+        // TSV has two "Widget" rows but OCR only captured the second. The old walk
+        // matched the first TSV "Widget" to the only OCR "Widget" (wrong row) and
+        // desynced everything after. Grid row alignment assigns the OCR line to the
+        // row whose full content agrees ("Widget 7", not "Widget 5").
+        const hItem  = word('Item', 0, 0, 40);
+        const hQty   = word('Qty', 200, 0, 30);
+        const widget = word('Widget', 0, 20, 60);
+        const seven  = word('7', 200, 20, 10);
+        const w = [hItem, hQty, widget, seven];
+        const csv = [['Item', 'Qty'], ['Widget', '5'], ['Widget', '7']];
+
+        const prov = matchCellsToOcr(csv, w);
+
+        expect(prov[1][0].matchStatus).toBe('unmatched');
+        expect(prov[1][1].matchStatus).toBe('unmatched');
+        expect(prov[2][0].wordIds).toEqual([widget.id]);
+        expect(prov[2][1].wordIds).toEqual([seven.id]);
+    });
+
+    it('skips a full-width title line the model excluded from the table', () => {
+        // The title spans the column gap, so no zero-crossing channel exists; the
+        // escalating tolerance (k=1) still finds the column split, and the row
+        // alignment DP skips the title line rather than forcing it onto row 1.
+        const title = word('QuarterlyReport', 10, 0, 220);
+        const item  = word('Item', 0, 20, 40);
+        const cost  = word('Cost', 200, 20, 40);
+        const bolt  = word('Bolt', 0, 40, 40);
+        const nine  = word('9', 200, 40, 10);
+        const nut   = word('Nut', 0, 60, 30);
+        const seven = word('7', 200, 60, 10);
+        const w = [title, item, cost, bolt, nine, nut, seven];
+        const csv = [['Item', 'Cost'], ['Bolt', '9'], ['Nut', '7']];
+
+        const prov = matchCellsToOcr(csv, w);
+
+        expect(prov.flat().every(c => c.matchStatus === 'matched')).toBe(true);
+        expect(prov.flat().every(c => !c.wordIds.includes(title.id))).toBe(true);
+        expect(prov[1][0].wordIds).toEqual([bolt.id]);
+        expect(prov[2][1].wordIds).toEqual([seven.id]);
+    });
+
+    it('resolves a right-justified column whose left edges vary', () => {
+        // "112.00" starts left of the header's left edge (right-justified numbers);
+        // interval-based channel detection and center-based band assignment place it
+        // in the correct column regardless of justification.
+        const itemH    = word('Item', 0, 0, 40);
+        const costH    = word('Cost', 200, 0, 40);
+        const bolt     = word('Bolt', 0, 20, 40);
+        const b950     = word('9.50', 210, 20, 40);
+        const longname = word('Longname', 0, 40, 80);
+        const l112     = word('112.00', 180, 40, 70);
+        const w = [itemH, costH, bolt, b950, longname, l112];
+        const csv = [['Item', 'Cost'], ['Bolt', '9.50'], ['Longname', '112.00']];
+
+        const prov = matchCellsToOcr(csv, w);
+
+        expect(prov.flat().every(c => c.matchStatus === 'matched')).toBe(true);
+        expect(prov[2][1].wordIds).toEqual([l112.id]);
+    });
+
+    it('handles empty TSV rows and ragged extra cells without desyncing later rows', () => {
+        const name  = word('Name', 0, 0, 40);
+        const score = word('Score', 200, 0, 50);
+        const ann   = word('Ann', 0, 20, 30);
+        const five  = word('5', 200, 20, 10);
+        const w = [name, score, ann, five];
+        // Middle row is entirely empty; last row has a ragged third cell.
+        const csv = [['Name', 'Score'], ['', ''], ['Ann', '5', 'extra']];
+
+        const prov = matchCellsToOcr(csv, w);
+
+        expect(prov[1][0].matchStatus).toBe('unmatched');
+        expect(prov[1][0].wordIds).toEqual([]);
+        expect(prov[2][0].wordIds).toEqual([ann.id]);
+        expect(prov[2][1].wordIds).toEqual([five.id]);
+        expect(prov[2][2].matchStatus).toBe('unmatched');
+    });
+
+    it('discards a grid that fails to describe the TSV and falls back to the walk', () => {
+        // Geometry yields two clean columns, but the TSV merged each visual row's
+        // words into column 0 — the grid places nothing, so it is discarded and the
+        // reading-order walk (which concatenates across the gap) matches instead.
+        const a = word('a', 0, 0, 10);
+        const b = word('b', 100, 0, 10);
+        const c = word('c', 0, 20, 10);
+        const d = word('d', 100, 20, 10);
+        const w = [a, b, c, d];
+        const csv = [['ab', 'x'], ['cd', 'y']];
+
+        const prov = matchCellsToOcr(csv, w);
+
+        expect(prov[0][0].matchStatus).toBe('multi_word');
+        expect(prov[0][0].wordIds).toEqual([a.id, b.id]);
+        expect(prov[1][0].wordIds).toEqual([c.id, d.id]);
+        expect(prov[0][1].matchStatus).toBe('unmatched');
+        expect(prov[1][1].matchStatus).toBe('unmatched');
     });
 });
 

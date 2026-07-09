@@ -171,8 +171,9 @@ export const useLlamaChat = () => {
                 throw new Error('The model did not return a parseable table. Try re-extracting, or check that the page contains tabular data.');
             }
 
-            // Stage 2a — deterministic reading-order walk to match cells to OCR words
-            const cellProvenance = matchCellsToOcr(csvRows, sanitizedWords);
+            // Stage 2a — deterministic grid-first matching of cells to OCR words
+            // (reading-order walk is the fallback when no grid is detectable)
+            const cellProvenance = matchCellsToOcr(csvRows, sanitizedWords, naturalHeight);
 
             // Attach logprob-based + OCR-based confidence to each cell
             const provenanceCells = computeProvenanceCells(cellProvenance, logprobs, rawContent, sanitizedWords);
