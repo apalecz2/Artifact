@@ -65,25 +65,38 @@ function headerClasses(cell: ProvenanceCell, isSelected: boolean): string {
     return `${base} ${trustColor(cell)}${ring}`;
 }
 
-// The "?" (no OCR source) and "≈" (approximate match) indicators, shared by header
-// and data cells.
+// The "?" (no OCR source), "≈" (approximate match) and "!" (low confidence)
+// indicators, shared by header and data cells. The "!" gives a low-trust cell a
+// signal that isn't hue alone — the red tint is indistinguishable from green for
+// red-green color-blind users (review #10). It's suppressed when another badge
+// already marks the cell, so no cell ever carries two.
 function CellBadges({ cell }: { cell: ProvenanceCell }) {
+    const imageOnly = cell.confidence.agreement === 'image_only';
+    const fuzzy = cell.matchStatus === 'fuzzy';
     return (
         <>
-            {cell.confidence.agreement === 'image_only' && (
+            {imageOnly && (
                 <span
-                    className="ml-1 inline-block rounded-full bg-surface-variant px-1 text-[10px] font-medium text-on-surface-variant leading-tight"
+                    className="inline-flex shrink-0 items-center justify-center rounded-full bg-surface-variant px-1 text-[10px] font-medium leading-tight text-on-surface-variant"
                     title="No OCR match — source unverified"
                 >
                     ?
                 </span>
             )}
-            {cell.matchStatus === 'fuzzy' && (
+            {fuzzy && (
                 <span
-                    className="ml-1 inline-block rounded-full bg-surface-variant px-1 text-[10px] font-medium text-on-surface-variant leading-tight"
+                    className="inline-flex shrink-0 items-center justify-center rounded-full bg-surface-variant px-1 text-[10px] font-medium leading-tight text-on-surface-variant"
                     title="Approximate OCR match — value differs slightly from OCR"
                 >
                     ≈
+                </span>
+            )}
+            {!imageOnly && !fuzzy && cell.confidence.trust === 'low' && (
+                <span
+                    className="inline-flex shrink-0 items-center justify-center rounded-full bg-surface-variant px-1 text-[10px] font-medium leading-tight text-on-surface-variant"
+                    title="Low confidence — verify against the source"
+                >
+                    !
                 </span>
             )}
         </>
@@ -121,8 +134,10 @@ export default function ProvenanceTable({ rows, onCellClick, selectedCell }: Pro
                                 onClick={() => onCellClick(cell)}
                                 title={cellTooltip(cell)}
                             >
-                                <span>{cell.value}</span>
-                                <CellBadges cell={cell} />
+                                <div className="flex items-center justify-between gap-1">
+                                    <span>{cell.value}</span>
+                                    <CellBadges cell={cell} />
+                                </div>
                             </th>
                         ))}
                     </tr>
@@ -138,8 +153,10 @@ export default function ProvenanceTable({ rows, onCellClick, selectedCell }: Pro
                                     onClick={() => onCellClick(cell)}
                                     title={cellTooltip(cell)}
                                 >
-                                    <span>{cell.value}</span>
-                                    <CellBadges cell={cell} />
+                                    <div className="flex items-center justify-between gap-1">
+                                        <span>{cell.value}</span>
+                                        <CellBadges cell={cell} />
+                                    </div>
                                 </td>
                             ))}
                         </tr>

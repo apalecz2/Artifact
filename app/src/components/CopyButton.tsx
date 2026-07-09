@@ -23,7 +23,7 @@ export function CopyButton({ onCopy, label = 'Copy' }: { onCopy: () => Promise<v
         <button
             onClick={handle}
             aria-label={copied ? 'Copied to clipboard' : `${label} (copies to clipboard)`}
-            className="flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1 text-sm font-medium text-on-surface-variant transition-colors hover:bg-surface-variant hover:text-on-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+            className="flex shrink-0 items-center gap-1.5 rounded-md bg-surface-variant/60 px-2.5 py-1 text-sm font-medium text-on-surface-variant transition-colors hover:bg-surface-variant hover:text-on-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
         >
             <Icon name={copied ? 'check' : 'content_copy'} size={18} className={copied ? 'text-green-600' : ''} />
             {copied ? 'Copied' : label}

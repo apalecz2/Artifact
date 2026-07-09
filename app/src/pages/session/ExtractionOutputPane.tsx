@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import Icon from '../../components/Icon';
 import { OutputCard } from '../../components/OutputCard';
 import { CopyButton } from '../../components/CopyButton';
@@ -66,29 +67,66 @@ interface ExtractionOutputPaneProps {
 // Reflects true save status, not an optimistic one: `saved` only ever flips to
 // true once the corresponding DB write has actually completed (see rawTextSaved
 // in useDocumentExtraction and the requestTableFormat/DB-load paths in
-// Session.tsx, which never populate table state before persisting). Clicking it
-// opens a small popover clarifying exactly what "saved" means here (on-device,
-// in-app, not yet exported) so it isn't mistaken for a cloud sync or an export.
+// Session.tsx, which never populate table state before persisting). While a
+// write is in flight the badge shows an explicit "Saving…" state rather than
+// disappearing — an absent badge reads as "nothing here", not "not saved yet"
+// (review #7). Clicking the saved badge opens a small popover clarifying
+// exactly what "saved" means here (on-device, in-app, not yet exported) so it
+// isn't mistaken for a cloud sync or an export.
+const SAVED_BADGE_POPUP_WIDTH = 256; // matches the popup's w-64
+const SAVED_BADGE_POPUP_MARGIN = 8;
+
 function SavedBadge({ saved, subject, note }: { saved: boolean; subject: string; note: string }): React.ReactElement | null {
     const [open, setOpen] = useState(false);
-    const ref = useRef<HTMLDivElement>(null);
+    // Screen-space (not pane-relative) position, so the popup is portaled to
+    // <body> and clamped to the viewport instead of being clipped by the
+    // OutputCard's `overflow-hidden` when the right-hand pane is narrow —
+    // previously the popup's close button could land past the pane's edge
+    // and get cut off entirely.
+    const [popupPos, setPopupPos] = useState<{ top: number; left: number } | null>(null);
+    const buttonRef = useRef<HTMLButtonElement>(null);
+    const popupRef = useRef<HTMLDivElement>(null);
+
+    const reposition = () => {
+        const rect = buttonRef.current?.getBoundingClientRect();
+        if (!rect) return;
+        const left = Math.min(rect.left, window.innerWidth - SAVED_BADGE_POPUP_WIDTH - SAVED_BADGE_POPUP_MARGIN);
+        setPopupPos({ top: rect.bottom + 4, left: Math.max(left, SAVED_BADGE_POPUP_MARGIN) });
+    };
 
     useEffect(() => {
         if (!open) return;
         const handler = (e: MouseEvent) => {
-            if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+            const target = e.target as Node;
+            if (buttonRef.current?.contains(target) || popupRef.current?.contains(target)) return;
+            setOpen(false);
         };
         document.addEventListener('mousedown', handler);
-        return () => document.removeEventListener('mousedown', handler);
+        window.addEventListener('resize', reposition);
+        return () => {
+            document.removeEventListener('mousedown', handler);
+            window.removeEventListener('resize', reposition);
+        };
     }, [open]);
 
-    if (!saved) return null;
+    if (!saved) {
+        return (
+            <span className="ml-3 flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-normal text-on-surface-variant">
+                Saving…
+                <Icon name="progress_activity" size={14} className="animate-spin" />
+            </span>
+        );
+    }
 
     return (
-        <div className="relative ml-3 shrink-0" ref={ref}>
+        <div className="relative ml-3 shrink-0">
             <button
+                ref={buttonRef}
                 type="button"
-                onClick={() => setOpen(o => !o)}
+                onClick={() => {
+                    reposition();
+                    setOpen(o => !o);
+                }}
                 className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-normal transition-colors hover:bg-green-600/10"
                 aria-haspopup="true"
                 aria-expanded={open}
@@ -97,8 +135,12 @@ function SavedBadge({ saved, subject, note }: { saved: boolean; subject: string;
                 <Icon name="check_circle" size={14} fill={1} className="text-green-600" />
             </button>
 
-            {open && (
-                <div className="absolute left-0 top-full z-50 mt-1 w-64 rounded-xl border border-outline-variant bg-surface p-3 text-xs leading-relaxed text-on-surface-variant shadow-lg">
+            {open && popupPos && createPortal(
+                <div
+                    ref={popupRef}
+                    style={{ top: popupPos.top, left: popupPos.left }}
+                    className="fixed z-50 w-64 rounded-xl border border-outline-variant bg-surface p-3 text-xs leading-relaxed text-on-surface-variant shadow-lg"
+                >
                     <button
                         type="button"
                         onClick={() => setOpen(false)}
@@ -108,7 +150,8 @@ function SavedBadge({ saved, subject, note }: { saved: boolean; subject: string;
                         <Icon name="close" size={14} />
                     </button>
                     {subject} is saved locally in the app on this computer, and not to the cloud. You can close this session and come back to it later without re-processing. {note}
-                </div>
+                </div>,
+                document.body
             )}
         </div>
     );
@@ -229,7 +272,15 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
                             titleBadge={<SavedBadge saved={rawTextSaved} subject="This detected text" note="You can copy it to paste elsewhere." />}
                             fill
                             bodyClassName="space-y-2 px-5 py-4 font-body-md text-on-surface leading-relaxed"
-                            action={<CopyButton onCopy={handleCopyRawText} />}
+                            action={
+                                <div className="flex items-center gap-3">
+                                    <span className="hidden items-center gap-1 whitespace-nowrap text-xs text-on-surface-variant @md:flex">
+                                        <Icon name="ads_click" size={14} className="shrink-0" />
+                                        Click a word to highlight its source
+                                    </span>
+                                    <CopyButton onCopy={handleCopyRawText} />
+                                </div>
+                            }
                         >
                             {rawLines.map((line, lineIndex) => (
                                 <p key={lineIndex} className="min-h-[1.5rem]">
@@ -326,26 +377,43 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
                                 title="AI Output"
                                 titleBadge={<SavedBadge saved subject="This formatted table" note="You can export it below." />}
                                 fill
-                                action={<CopyButton onCopy={handleCopyTable} />}
+                                action={
+                                    <div className="flex items-center gap-3">
+                                        <span className="hidden items-center gap-1 whitespace-nowrap text-xs text-on-surface-variant @md:flex">
+                                            <Icon name="ads_click" size={14} className="shrink-0" />
+                                            Click a cell to highlight its source
+                                        </span>
+                                        <CopyButton onCopy={handleCopyTable} />
+                                    </div>
+                                }
                                 subheader={
-                                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-on-surface-variant">
+                                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-on-surface-variant">
                                         <span className="flex items-center gap-1">
                                             <span className="inline-block h-3 w-3 rounded-sm bg-green-200 border border-green-400"></span>
                                             High confidence
                                         </span>
+                                        <span className="hidden h-3 w-px shrink-0 bg-outline-variant @md:block" aria-hidden="true"></span>
                                         <span className="flex items-center gap-1">
                                             <span className="inline-block h-3 w-3 rounded-sm bg-amber-200 border border-amber-400"></span>
                                             Medium
                                         </span>
+                                        <span className="hidden h-3 w-px shrink-0 bg-outline-variant @md:block" aria-hidden="true"></span>
                                         <span className="flex items-center gap-1">
                                             <span className="inline-block h-3 w-3 rounded-sm bg-red-200 border border-red-400"></span>
-                                            Low
+                                            <span className="inline-block rounded-full border border-outline-variant bg-surface-variant px-1 text-[10px] font-medium leading-tight">!</span>
+                                            Low confidence
                                         </span>
+                                        <span className="hidden h-3 w-px shrink-0 bg-outline-variant @md:block" aria-hidden="true"></span>
                                         <span className="flex items-center gap-1">
                                             <span className="inline-block h-3 w-3 rounded-sm bg-surface-variant border border-outline-variant"></span>
+                                            <span className="inline-block rounded-full border border-outline-variant bg-surface-variant px-1 text-[10px] font-medium leading-tight">?</span>
                                             Unverified source
                                         </span>
-                                        <span className="ml-auto text-on-surface-variant/60 @md:whitespace-nowrap">Click a cell to highlight its source</span>
+                                        <span className="hidden h-3 w-px shrink-0 bg-outline-variant @md:block" aria-hidden="true"></span>
+                                        <span className="flex items-center gap-1">
+                                            <span className="inline-block rounded-full border border-outline-variant bg-surface-variant px-1 text-[10px] font-medium leading-tight">≈</span>
+                                            Approximate match
+                                        </span>
                                     </div>
                                 }
                             >

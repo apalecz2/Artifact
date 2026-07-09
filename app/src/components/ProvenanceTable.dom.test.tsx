@@ -57,6 +57,30 @@ describe('ProvenanceTable', () => {
         expect(screen.getByText('approx').closest('td')!.textContent).toContain('≈');
     });
 
+    it('shows the ! badge on low-trust cells so low confidence is not hue-only', () => {
+        const rows = [
+            [cell('H', 'high')],
+            [cell('shaky', 'low')],
+        ];
+        render(<ProvenanceTable rows={rows} onCellClick={vi.fn()} selectedCell={null} />);
+        expect(screen.getByText('shaky').closest('td')!.textContent).toContain('!');
+        expect(screen.getByText('H').closest('th')!.textContent).not.toContain('!');
+    });
+
+    it('does not double-badge a low-trust cell that already shows ? or ≈', () => {
+        const rows = [
+            [cell('img', 'low', { agreement: 'image_only', matchStatus: 'unmatched' })],
+            [cell('fuz', 'low', { matchStatus: 'fuzzy' })],
+        ];
+        render(<ProvenanceTable rows={rows} onCellClick={vi.fn()} selectedCell={null} />);
+        const imgCell = screen.getByText('img').closest('th')!;
+        expect(imgCell.textContent).toContain('?');
+        expect(imgCell.textContent).not.toContain('!');
+        const fuzCell = screen.getByText('fuz').closest('td')!;
+        expect(fuzCell.textContent).toContain('≈');
+        expect(fuzCell.textContent).not.toContain('!');
+    });
+
     it('header cells get trust colours, not a flat gray', () => {
         const rows = [[cell('Header', 'high')], [cell('data', 'high')]];
         render(<ProvenanceTable rows={rows} onCellClick={vi.fn()} selectedCell={null} />);

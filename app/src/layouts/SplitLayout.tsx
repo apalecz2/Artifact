@@ -1,6 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
 import Icon from '../components/Icon';
 
+// A pane narrower than this can't lay out its floating toolbar without the
+// controls wrapping into a tall stack crowded against the resize gutter
+// (review #6), so the divider clamps to a pixel floor rather than a bare
+// percentage. On small windows where the floor would eat most of the width,
+// it's capped at 40% so both panes always remain usable.
+const MIN_PANE_PX = 360;
+
 export const SplitLayout = ({ children }: { children: React.ReactNode }) => {
     const [leftWidth, setLeftWidth] = useState(50);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -11,7 +18,10 @@ export const SplitLayout = ({ children }: { children: React.ReactNode }) => {
             if (!isDragging.current || !containerRef.current) return;
             const containerRect = containerRef.current.getBoundingClientRect();
             const newWidth = ((e.clientX - containerRect.left) / containerRect.width) * 100;
-            if (newWidth >= 20 && newWidth <= 80) setLeftWidth(newWidth);
+            const minPct = Math.min(40, Math.max(20, (MIN_PANE_PX / containerRect.width) * 100));
+            // Clamp to the limit rather than ignoring the move, so dragging past
+            // the bound pins the divider at it instead of freezing it mid-track.
+            setLeftWidth(Math.min(100 - minPct, Math.max(minPct, newWidth)));
         };
         const handleMouseUp = () => {
             if (isDragging.current) {

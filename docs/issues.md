@@ -23,7 +23,6 @@
 ### Low priority for first release:
 - Screenshots don't show up well against the same theme -- dark screenshot against dark mode bg + vice versa
     - Could add drop shadow, or outline?
-- Colour is the only signal for confidence -- bad accessibility for colour blind
 
 
 ### From VM
@@ -88,6 +87,13 @@ Added excel export support
 
 
 
+
+**Colour was the only signal for confidence — bad accessibility for colour blind.**
+   Low-trust table cells now carry a "!" badge whenever they don't already show the
+   "?" (unverified source) or "≈" (approximate match) badge, so "verify this cell" is
+   never communicated by hue alone. The legend teaches all three badge glyphs, and the
+   flagged-cell review nav ("N cells to review") was already a color-independent path
+   to the same cells. (UX review 2026-07 #10.)
 
 ### Build / Packaging
 

@@ -55,7 +55,9 @@ export function OutputHelp(): React.ReactElement {
             <HelpItem icon="ads_click" title="Source highlighting">
                 Click any table cell to highlight the words it came from on the document.
                 Cell colors show how confident the match is — green (high), amber (medium),
-                red (low), and grey for cells with no verified source.
+                red (low), and grey for cells with no verified source. Badges flag cells
+                worth checking: "!" low confidence, "≈" approximate match, "?" no verified
+                source.
             </HelpItem>
             <HelpItem icon="download" title="Export & re-extract">
                 Export the finished table (e.g. CSV), or re-extract if the result looks off
