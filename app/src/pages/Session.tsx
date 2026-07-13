@@ -10,10 +10,10 @@ import { useLlamaChat } from '../features/llama/useLlamaChat';
 import { LlamaChatProvider } from '../features/llama/LlamaChatContext';
 import { SplitLayout } from '../layouts/SplitLayout';
 import { generateLinesFromWords } from '../utils/ocrTransforms';
-import { sanitizeWordsForProvenance, getCellSourceBox } from '../features/extraction/provenance';
+import { sanitizeWordsForProvenance, getCellSourceBox, padProvenanceGrid } from '../features/extraction/provenance';
 import type { BoundingBox } from '../features/ocr/types';
 import type { ProvenanceCell } from '../features/extraction/types';
-import { buildFileStem } from '../features/export/exportUtils';
+import { buildFileStem, toCsv } from '../features/export/exportUtils';
 import { copyTableToClipboard } from '../utils/clipboard';
 import { SourceDocumentPane } from './session/SourceDocumentPane';
 import { ExtractionOutputPane } from './session/ExtractionOutputPane';
@@ -162,7 +162,9 @@ function SessionContent(): React.ReactElement {
             const csv = rows[0]?.csv_content ?? null;
             const mappingsJson = rows[0]?.cell_mappings_json ?? null;
             setSavedCsv(csv);
-            setProvenanceCells(mappingsJson ? JSON.parse(mappingsJson) as ProvenanceCell[][] : null);
+            // Pad ragged grids (the model may omit trailing empty cells; older
+            // sessions persisted them that way) so the last column always renders.
+            setProvenanceCells(mappingsJson ? padProvenanceGrid(JSON.parse(mappingsJson) as ProvenanceCell[][]) : null);
             setSelectedCell(null);
             setSelectedWordId(null);
             setProvenanceHighlightBox(null);
@@ -207,7 +209,7 @@ function SessionContent(): React.ReactElement {
                 { boostTokens },
             );
             setSavedCsv(result.csvContent);
-            setProvenanceCells(result.provenanceCells);
+            setProvenanceCells(padProvenanceGrid(result.provenanceCells));
             setTruncated(result.truncated);
             setContextOverflow(result.contextOverflow);
         } catch (err) {
@@ -234,6 +236,55 @@ function SessionContent(): React.ReactElement {
         const box = getCellSourceBox(cell, sanitized);
         setProvenanceHighlightBox(box);
         if (box && autoZoom) viewerRef.current?.zoomToBox(box);
+    };
+
+    // Apply an updated cell grid: refresh both pieces of table state (the CSV is
+    // re-derived from the cells so copy/export always reflect edits) and persist
+    // them over the existing csv_outputs row. Called only while a table exists,
+    // so the UPDATE always has a row to hit; a failed write keeps the in-memory
+    // edit and logs rather than blanking the pane.
+    const applyCellUpdate = (updated: ProvenanceCell[][]) => {
+        const csv = toCsv(updated.map(row => row.map(c => c.value)));
+        setProvenanceCells(updated);
+        setSavedCsv(csv);
+        if (!id) return;
+        getDb().then(async db => {
+            await db.execute(
+                'UPDATE csv_outputs SET csv_content = $1, cell_mappings_json = $2 WHERE session_id = $3 AND page_index = $4',
+                [csv, JSON.stringify(updated), id, activePageIndex]
+            );
+            await db.execute('UPDATE sessions SET updated_at = CURRENT_TIMESTAMP WHERE id = $1', [id]);
+        }).catch(err => console.error('Failed to persist cell update', err));
+    };
+
+    const mapCell = (
+        target: ProvenanceCell,
+        update: (cell: ProvenanceCell) => ProvenanceCell,
+    ): ProvenanceCell[][] | null =>
+        provenanceCells?.map(row => row.map(c =>
+            c.rowIndex === target.rowIndex && c.colIndex === target.colIndex ? update(c) : c
+        )) ?? null;
+
+    // Committing an edit is also a manual verification: the user has looked at
+    // the source and stated the correct value, so the cell leaves the review
+    // worklist even when the typed value equals the original. The original
+    // wordIds are kept — they still point at the cell's source location.
+    const handleCellEdit = (cell: ProvenanceCell, newValue: string) => {
+        const value = newValue.trim();
+        const updated = mapCell(cell, c => ({
+            ...c,
+            value,
+            verified: true,
+            edited: c.edited || value !== cell.value.trim(),
+        }));
+        if (updated) applyCellUpdate(updated);
+    };
+
+    // Toggle "manually verified" without changing the value — the "this is
+    // actually correct" resolution for a flagged cell.
+    const handleToggleVerified = (cell: ProvenanceCell) => {
+        const updated = mapCell(cell, c => ({ ...c, verified: !c.verified }));
+        if (updated) applyCellUpdate(updated);
     };
 
     // Word-level selection links the raw-text view and the image 1:1: bold the
@@ -327,6 +378,8 @@ function SessionContent(): React.ReactElement {
                 provenanceCells={provenanceCells}
                 selectedCell={selectedCell}
                 handleCellClick={handleCellClick}
+                onCellEdit={handleCellEdit}
+                onToggleVerified={handleToggleVerified}
                 savedCsv={savedCsv}
                 handleCopyTable={handleCopyTable}
                 hasTable={hasTable}

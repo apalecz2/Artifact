@@ -1,12 +1,26 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ProvenanceCell, TrustLevel } from '../features/extraction/types';
 
 export type SelectedCell = { rowIndex: number; colIndex: number } | null;
+
+// The review worklist predicate, shared by the toolbar (count/stepper) and this
+// table: a cell needs a second look until its trust is high or the user has
+// manually verified (or corrected) it.
+export function needsReview(cell: ProvenanceCell): boolean {
+    return !cell.verified && cell.confidence.trust !== 'high';
+}
 
 interface ProvenanceTableProps {
     rows: ProvenanceCell[][];
     onCellClick: (cell: ProvenanceCell) => void;
     selectedCell: SelectedCell;
+    // Editing is enabled only when all three editing props are provided (the
+    // read-only rendering elsewhere just omits them). The parent owns which cell
+    // is in edit mode so keyboard shortcuts outside the table can open it.
+    editingCell?: SelectedCell;
+    onStartEdit?: (cell: ProvenanceCell) => void;
+    onCommitEdit?: (cell: ProvenanceCell, value: string) => void;
+    onCancelEdit?: () => void;
 }
 
 // Light mode uses pale pastels with dark text; dark mode uses a translucent deep
@@ -40,6 +54,11 @@ function hasOverlookedText(cell: ProvenanceCell): boolean {
 }
 
 function cellTooltip(cell: ProvenanceCell): string {
+    if (cell.verified) {
+        return cell.edited
+            ? 'Manually corrected and verified — double-click to edit again'
+            : 'Manually verified against the source — double-click to edit';
+    }
     if (hasOverlookedText(cell)) {
         return 'Blank cell, but unextracted text was found at this spot — click to see it in the source';
     }
@@ -61,6 +80,10 @@ function cellTooltip(cell: ProvenanceCell): string {
 }
 
 function trustColor(cell: ProvenanceCell): string {
+    // A manually verified cell is the strongest signal there is — the user
+    // checked it against the source — so it renders as high trust regardless of
+    // what the automatic scoring said.
+    if (cell.verified) return `${TRUST_BG.high} ${TRUST_TEXT.high}`;
     // Overlooked text is a real warning (possible dropped content) — red like
     // low trust. A plain blank cell is neutral: no tint and no trust color, so
     // a sparse table doesn't read as a wall of warnings.
@@ -99,6 +122,18 @@ function headerClasses(cell: ProvenanceCell, isSelected: boolean): string {
 // carries two. Blank cells are badge-free unless overlooked source text was
 // found at their location.
 function CellBadges({ cell }: { cell: ProvenanceCell }) {
+    // Verified wins over every warning badge: the user has already looked at
+    // this cell, so re-flagging it would just re-open a closed question.
+    if (cell.verified) {
+        return (
+            <span
+                className="inline-flex shrink-0 items-center justify-center rounded-full bg-green-600/15 px-1 text-[10px] font-medium leading-tight text-green-800 dark:text-green-300"
+                title={cell.edited ? 'Manually corrected and verified' : 'Manually verified'}
+            >
+                ✓
+            </span>
+        );
+    }
     if (isEmptyCell(cell)) {
         if (!hasOverlookedText(cell)) return null;
         return (
@@ -142,15 +177,53 @@ function CellBadges({ cell }: { cell: ProvenanceCell }) {
     );
 }
 
-export default function ProvenanceTable({ rows, onCellClick, selectedCell }: ProvenanceTableProps) {
-    if (rows.length === 0) return null;
+// Inline value editor rendered in place of a cell's content. Enter always
+// commits (an unchanged commit is an explicit "this is correct" confirmation);
+// Escape cancels; clicking away commits only if the value actually changed, so
+// an accidental blur doesn't silently mark the cell verified.
+function CellEditor({ cell, onCommit, onCancel }: {
+    cell: ProvenanceCell;
+    onCommit: (value: string) => void;
+    onCancel: () => void;
+}) {
+    const [value, setValue] = useState(cell.value);
+    const inputRef = useRef<HTMLInputElement | null>(null);
+    useEffect(() => {
+        inputRef.current?.focus();
+        inputRef.current?.select();
+    }, []);
+    return (
+        <input
+            ref={inputRef}
+            value={value}
+            onChange={e => setValue(e.target.value)}
+            onClick={e => e.stopPropagation()}
+            onKeyDown={e => {
+                // Keep table-level shortcuts (arrow nav, space-to-verify) from
+                // firing while typing.
+                e.stopPropagation();
+                if (e.key === 'Enter') onCommit(value);
+                else if (e.key === 'Escape') onCancel();
+            }}
+            onBlur={() => {
+                if (value.trim() !== cell.value.trim()) onCommit(value);
+                else onCancel();
+            }}
+            aria-label="Edit cell value"
+            className="w-full min-w-24 rounded border border-primary bg-surface px-1 py-0.5 text-sm font-normal text-on-surface outline-none"
+        />
+    );
+}
 
-    const headerRow = rows[0];
-    const dataRows = rows.slice(1);
-
-    const isSelected = (r: number, c: number) =>
-        selectedCell?.rowIndex === r && selectedCell?.colIndex === c;
-
+export default function ProvenanceTable({
+    rows,
+    onCellClick,
+    selectedCell,
+    editingCell,
+    onStartEdit,
+    onCommitEdit,
+    onCancelEdit,
+}: ProvenanceTableProps) {
     // Bring the selected cell into view when selection changes — needed when the
     // selection comes from clicking a word on the image (e.g. the cell may be
     // scrolled out of the table's viewport). `nearest` keeps movement minimal so a
@@ -159,6 +232,32 @@ export default function ProvenanceTable({ rows, onCellClick, selectedCell }: Pro
     useEffect(() => {
         selectedRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     }, [selectedCell?.rowIndex, selectedCell?.colIndex]);
+
+    if (rows.length === 0) return null;
+
+    const headerRow = rows[0];
+    const dataRows = rows.slice(1);
+
+    const isSelected = (r: number, c: number) =>
+        selectedCell?.rowIndex === r && selectedCell?.colIndex === c;
+    const isEditing = (r: number, c: number) =>
+        !!onCommitEdit && editingCell?.rowIndex === r && editingCell?.colIndex === c;
+
+    const editable = !!onStartEdit && !!onCommitEdit && !!onCancelEdit;
+
+    const cellContent = (cell: ProvenanceCell, r: number, c: number) =>
+        isEditing(r, c) ? (
+            <CellEditor
+                cell={cell}
+                onCommit={value => onCommitEdit!(cell, value)}
+                onCancel={() => onCancelEdit!()}
+            />
+        ) : (
+            <div className="flex items-center justify-between gap-1">
+                <span>{cell.value}</span>
+                <CellBadges cell={cell} />
+            </div>
+        );
 
     return (
         <div className="overflow-x-auto">
@@ -171,12 +270,10 @@ export default function ProvenanceTable({ rows, onCellClick, selectedCell }: Pro
                                 ref={isSelected(0, c) ? selectedRef : undefined}
                                 className={headerClasses(cell, isSelected(0, c))}
                                 onClick={() => onCellClick(cell)}
+                                onDoubleClick={editable ? () => onStartEdit!(cell) : undefined}
                                 title={cellTooltip(cell)}
                             >
-                                <div className="flex items-center justify-between gap-1">
-                                    <span>{cell.value}</span>
-                                    <CellBadges cell={cell} />
-                                </div>
+                                {cellContent(cell, 0, c)}
                             </th>
                         ))}
                     </tr>
@@ -190,12 +287,10 @@ export default function ProvenanceTable({ rows, onCellClick, selectedCell }: Pro
                                     ref={isSelected(ri + 1, c) ? selectedRef : undefined}
                                     className={cellClasses(cell, isSelected(ri + 1, c))}
                                     onClick={() => onCellClick(cell)}
+                                    onDoubleClick={editable ? () => onStartEdit!(cell) : undefined}
                                     title={cellTooltip(cell)}
                                 >
-                                    <div className="flex items-center justify-between gap-1">
-                                        <span>{cell.value}</span>
-                                        <CellBadges cell={cell} />
-                                    </div>
+                                    {cellContent(cell, ri + 1, c)}
                                 </td>
                             ))}
                         </tr>

@@ -53,6 +53,12 @@ export type CellProvenance = {
     // could not be located). Sessions persisted before "empty" existed store
     // blank cells as "unmatched"; consumers treat a blank value as empty too.
     matchStatus: "matched" | "multi_word" | "fuzzy" | "unmatched" | "empty";
+    // Manual review state. `verified` = the user confirmed this cell against the
+    // source (it leaves the review worklist and renders with a ✓); `edited` = the
+    // value was hand-corrected (an edit implies verified). Both are absent on
+    // sessions persisted before manual review existed — treat missing as false.
+    verified?: boolean;
+    edited?: boolean;
 };
 
 export type TokenLogprob = {

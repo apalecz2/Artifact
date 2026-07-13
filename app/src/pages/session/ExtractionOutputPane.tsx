@@ -4,7 +4,7 @@ import Icon from '../../components/Icon';
 import { OutputCard } from '../../components/OutputCard';
 import { CopyButton } from '../../components/CopyButton';
 import { HelpOverlay } from '../../components/HelpOverlay';
-import ProvenanceTable from '../../components/ProvenanceTable';
+import ProvenanceTable, { needsReview } from '../../components/ProvenanceTable';
 import type { SelectedCell } from '../../components/ProvenanceTable';
 import { ExtractionProgress } from '../../features/extraction/ExtractionProgress';
 import { ExportMenu } from '../../features/export/ExportMenu';
@@ -49,6 +49,9 @@ interface ExtractionOutputPaneProps {
     provenanceCells: ProvenanceCell[][] | null;
     selectedCell: SelectedCell;
     handleCellClick: (cell: ProvenanceCell) => void;
+    // Manual review: commit a corrected value / toggle "manually verified".
+    onCellEdit: (cell: ProvenanceCell, value: string) => void;
+    onToggleVerified: (cell: ProvenanceCell) => void;
     savedCsv: string | null;
     handleCopyTable: () => Promise<void> | void;
     hasTable: boolean;
@@ -163,7 +166,7 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
         activePage, isDbLoading, showProcessing, processingCancelled,
         rawLines, selectedWordId, highlightedWordId, setHighlightedWordId, selectWord, selectedWordRef, handleCopyRawText, rawTextSaved,
         isExtracting, isCancelling, extractionPhase, streamingContent, streamRef, cancelTableFormat,
-        provenanceCells, selectedCell, handleCellClick, savedCsv, handleCopyTable, hasTable,
+        provenanceCells, selectedCell, handleCellClick, onCellEdit, onToggleVerified, savedCsv, handleCopyTable, hasTable,
         extractionError, llamaError, truncated, contextOverflow, handleFormatTable,
         fileStem,
     } = props;
@@ -181,10 +184,11 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
 
     // Cells worth a second look, in reading order — turns proofreading from a
     // scan of the whole table into a worklist (see the toolbar's review nav).
+    // Editing or marking a cell verified resolves it out of the list.
     const flaggedCells = useMemo(
         () => (provenanceCells ?? [])
             .flat()
-            .filter(cell => cell.confidence.trust !== 'high')
+            .filter(needsReview)
             .sort((a, b) => a.rowIndex - b.rowIndex || a.colIndex - b.colIndex),
         [provenanceCells]
     );
@@ -193,16 +197,130 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
         ? flaggedCells.findIndex(c => c.rowIndex === selectedCell.rowIndex && c.colIndex === selectedCell.colIndex)
         : -1;
 
-    // Step to the next/previous flagged cell, wrapping around. If the current
-    // selection isn't a flagged cell (or nothing's selected), start from the
-    // first (next) or last (previous) one.
+    // Step to the next/previous flagged cell, wrapping around. If the selection
+    // isn't itself flagged (typically because it was just resolved), continue
+    // from its position in reading order rather than restarting at the first
+    // issue — resolve, step, resolve is the core review loop. With no selection
+    // at all, start from the first (next) or last (previous) issue.
     const goToFlag = (delta: 1 | -1) => {
         if (flaggedCells.length === 0) return;
-        const nextIndex = currentFlagIndex === -1
-            ? (delta > 0 ? 0 : flaggedCells.length - 1)
-            : (currentFlagIndex + delta + flaggedCells.length) % flaggedCells.length;
+        let nextIndex: number;
+        if (currentFlagIndex !== -1) {
+            nextIndex = (currentFlagIndex + delta + flaggedCells.length) % flaggedCells.length;
+        } else if (selectedCell) {
+            const after = flaggedCells.findIndex(c =>
+                c.rowIndex > selectedCell.rowIndex ||
+                (c.rowIndex === selectedCell.rowIndex && c.colIndex > selectedCell.colIndex));
+            nextIndex = delta > 0
+                ? (after === -1 ? 0 : after)
+                : (after === -1 ? flaggedCells.length - 1 : (after - 1 + flaggedCells.length) % flaggedCells.length);
+        } else {
+            nextIndex = delta > 0 ? 0 : flaggedCells.length - 1;
+        }
         handleCellClick(flaggedCells[nextIndex]);
     };
+
+    // Which cell (if any) is in inline-edit mode. Owned here rather than by the
+    // table so the toolbar button and the Enter shortcut can open the editor.
+    const [editingCell, setEditingCell] = useState<SelectedCell>(null);
+    useEffect(() => setEditingCell(null), [provenanceCells]);
+
+    const selectedProvCell = selectedCell
+        ? provenanceCells?.[selectedCell.rowIndex]?.[selectedCell.colIndex]
+        : undefined;
+
+    const commitEdit = (cell: ProvenanceCell, value: string) => {
+        setEditingCell(null);
+        onCellEdit(cell, value);
+    };
+
+    // Keyboard review flow over the table (grids are rectangular — Session pads
+    // them — so column clamping below is only belt-and-braces):
+    //   ←/→  step through the flagged cells while any remain; once the table is
+    //         clean they walk every cell in reading order. Each step selects the
+    //         cell and highlights/zooms its source location on the document.
+    //   ↑/↓  move the selection between rows (free-form navigation).
+    //   Enter/F2 edit the selected cell; Space marks it verified/unverified.
+    useEffect(() => {
+        if (outputView !== 'table' || isExtracting || !provenanceCells?.length || editingCell) return;
+        const grid = provenanceCells;
+
+        const clickAt = (r: number, c: number) => {
+            const cell = grid[r]?.[Math.min(c, (grid[r]?.length ?? 1) - 1)];
+            if (cell) handleCellClick(cell);
+        };
+
+        // Reading-order step across all cells, wrapping between rows but not
+        // around the table's ends.
+        const stepCell = (delta: 1 | -1) => {
+            if (!selectedCell) {
+                clickAt(delta > 0 ? 0 : grid.length - 1, delta > 0 ? 0 : Infinity);
+                return;
+            }
+            let { rowIndex: r, colIndex: c } = selectedCell;
+            c += delta;
+            while (r >= 0 && r < grid.length) {
+                if (c < 0) { r -= 1; c = (grid[r]?.length ?? 0) - 1; continue; }
+                if (c >= grid[r].length) { r += 1; c = 0; continue; }
+                break;
+            }
+            const cell = grid[r]?.[c];
+            if (cell) handleCellClick(cell);
+        };
+
+        const stepRow = (delta: 1 | -1) => {
+            if (!selectedCell) {
+                if (flaggedCells.length > 0) handleCellClick(flaggedCells[0]);
+                else clickAt(0, 0);
+                return;
+            }
+            const r = selectedCell.rowIndex + delta;
+            if (r < 0 || r >= grid.length) return;
+            clickAt(r, selectedCell.colIndex);
+        };
+
+        const handler = (e: KeyboardEvent) => {
+            // Never hijack typing in an input/textarea (e.g. the page-number
+            // field or the word-edit modal) or chorded shortcuts.
+            const target = e.target as HTMLElement | null;
+            if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)) return;
+            if (e.ctrlKey || e.metaKey || e.altKey) return;
+            // Enter/Space on a focused button must stay the button's activation
+            // (e.g. a just-clicked toolbar chevron) — but arrows still navigate.
+            const onButton = target?.tagName === 'BUTTON';
+
+            switch (e.key) {
+                case 'ArrowRight':
+                case 'ArrowLeft': {
+                    const delta = e.key === 'ArrowRight' ? 1 : -1;
+                    if (flaggedCells.length > 0) goToFlag(delta);
+                    else stepCell(delta);
+                    e.preventDefault();
+                    break;
+                }
+                case 'ArrowDown':
+                case 'ArrowUp':
+                    stepRow(e.key === 'ArrowDown' ? 1 : -1);
+                    e.preventDefault();
+                    break;
+                case 'Enter':
+                case 'F2':
+                    if (!onButton && selectedCell && selectedProvCell) {
+                        setEditingCell({ ...selectedCell });
+                        e.preventDefault();
+                    }
+                    break;
+                case ' ':
+                    if (!onButton && selectedProvCell) {
+                        onToggleVerified(selectedProvCell);
+                        e.preventDefault();
+                    }
+                    break;
+            }
+        };
+        window.addEventListener('keydown', handler);
+        return () => window.removeEventListener('keydown', handler);
+    });
 
     return (
         <>
@@ -381,7 +499,7 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
                                     <div className="flex items-center gap-3">
                                         <span className="hidden items-center gap-1 whitespace-nowrap text-xs text-on-surface-variant @md:flex">
                                             <Icon name="ads_click" size={14} className="shrink-0" />
-                                            Click a cell to highlight its source
+                                            Click a cell to see its source · double-click to edit
                                         </span>
                                         <CopyButton onCopy={handleCopyTable} />
                                     </div>
@@ -414,6 +532,11 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
                                             <span className="inline-block rounded-full border border-outline-variant bg-surface-variant px-1 text-[10px] font-medium leading-tight">≈</span>
                                             Approximate match
                                         </span>
+                                        <span className="hidden h-3 w-px shrink-0 bg-outline-variant @md:block" aria-hidden="true"></span>
+                                        <span className="flex items-center gap-1">
+                                            <span className="inline-block rounded-full bg-green-600/15 px-1 text-[10px] font-medium leading-tight text-green-800 dark:text-green-300">✓</span>
+                                            Manually verified
+                                        </span>
                                     </div>
                                 }
                             >
@@ -421,12 +544,25 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
                                     rows={provenanceCells}
                                     onCellClick={handleCellClick}
                                     selectedCell={selectedCell}
+                                    editingCell={editingCell}
+                                    onStartEdit={cell => {
+                                        handleCellClick(cell);
+                                        setEditingCell({ rowIndex: cell.rowIndex, colIndex: cell.colIndex });
+                                    }}
+                                    onCommitEdit={commitEdit}
+                                    onCancelEdit={() => setEditingCell(null)}
                                 />
                             </OutputCard>
                         ) : savedCsv ? (
                             /* Fallback: plain table for extractions without provenance data */
                             (() => {
-                                const rows = parseCSV(savedCsv);
+                                const parsed = parseCSV(savedCsv);
+                                // Pad ragged rows to the widest row: a trailing empty cell
+                                // the model omitted (e.g. bottom-right) must still render.
+                                const width = parsed.reduce((w, row) => Math.max(w, row.length), 0);
+                                const rows = parsed.map(row =>
+                                    row.length === width ? row : [...row, ...Array<string>(width - row.length).fill('')]
+                                );
                                 const headers = rows[0] ?? [];
                                 const dataRows = rows.slice(1);
                                 return (
@@ -523,26 +659,60 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
                                 )}
                                 {outputView === 'table' && !isExtracting && (
                                     <>
-                                        {flaggedCells.length > 0 && (
+                                        {(provenanceCells?.length ?? 0) > 0 && (
+                                            flaggedCells.length > 0 ? (
+                                                <div className="flex shrink-0 items-center gap-1 pr-2 mr-1 border-r border-outline-variant">
+                                                    <button
+                                                        aria-label="Previous cell to review"
+                                                        title="Previous cell to review (←)"
+                                                        onClick={() => goToFlag(-1)}
+                                                        className={iconBtnClass}
+                                                        type="button"
+                                                    >
+                                                        <Icon name="chevron_left" size={18} />
+                                                    </button>
+                                                    <span className="whitespace-nowrap px-1 text-sm text-on-surface-variant">
+                                                        {flaggedCells.length} cell{flaggedCells.length === 1 ? '' : 's'} to review
+                                                    </span>
+                                                    <button
+                                                        aria-label="Next cell to review"
+                                                        title="Next cell to review (→)"
+                                                        onClick={() => goToFlag(1)}
+                                                        className={iconBtnClass}
+                                                        type="button"
+                                                    >
+                                                        <Icon name="chevron_right" size={18} />
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                // The worklist is empty — every cell is either high
+                                                // confidence or manually verified. Say so instead of
+                                                // silently dropping the review tools.
+                                                <div className="flex shrink-0 items-center gap-1.5 pr-3 mr-1 border-r border-outline-variant text-sm text-green-700 dark:text-green-400">
+                                                    <Icon name="check_circle" size={18} fill={1} />
+                                                    <span className="whitespace-nowrap">All cells reviewed</span>
+                                                </div>
+                                            )
+                                        )}
+                                        {selectedProvCell && (
                                             <div className="flex shrink-0 items-center gap-1 pr-2 mr-1 border-r border-outline-variant">
                                                 <button
-                                                    aria-label="Previous cell to review"
-                                                    onClick={() => goToFlag(-1)}
+                                                    aria-label="Edit cell value"
+                                                    title="Edit cell value (Enter) — or double-click the cell"
+                                                    onClick={() => setEditingCell(selectedCell ? { ...selectedCell } : null)}
                                                     className={iconBtnClass}
                                                     type="button"
                                                 >
-                                                    <Icon name="chevron_left" size={18} />
+                                                    <Icon name="edit" size={18} />
                                                 </button>
-                                                <span className="whitespace-nowrap px-1 text-sm text-on-surface-variant">
-                                                    {flaggedCells.length} cell{flaggedCells.length === 1 ? '' : 's'} to review
-                                                </span>
                                                 <button
-                                                    aria-label="Next cell to review"
-                                                    onClick={() => goToFlag(1)}
-                                                    className={iconBtnClass}
+                                                    aria-label={selectedProvCell.verified ? 'Unmark manually verified' : 'Mark as manually verified'}
+                                                    title={selectedProvCell.verified ? 'Unmark manually verified (Space)' : 'Mark as manually verified (Space)'}
+                                                    onClick={() => onToggleVerified(selectedProvCell)}
+                                                    className={`${iconBtnClass}${selectedProvCell.verified ? ' text-green-700 dark:text-green-400' : ''}`}
                                                     type="button"
                                                 >
-                                                    <Icon name="chevron_right" size={18} />
+                                                    <Icon name={selectedProvCell.verified ? 'check_box' : 'check_box_outline_blank'} size={18} />
                                                 </button>
                                             </div>
                                         )}

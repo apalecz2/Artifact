@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import ProvenanceTable from './ProvenanceTable';
+import ProvenanceTable, { needsReview } from './ProvenanceTable';
 import type { TrustLevel, AgreementStatus, ProvenanceCell } from '../features/extraction/types';
 import { provenanceCell } from '../test/fixtures';
 
@@ -153,5 +153,100 @@ describe('ProvenanceTable', () => {
         );
         expect(screen.getByText('B').closest('th')!.className).toContain('ring-2');
         expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
+    });
+
+    it('renders a manually verified cell green with a ✓ and no warning badge', () => {
+        const rows = [
+            [cell('Head', 'high')],
+            [{ ...cell('shaky', 'low'), verified: true }],
+        ];
+        render(<ProvenanceTable rows={rows} onCellClick={vi.fn()} selectedCell={null} />);
+        const td = screen.getByText('shaky').closest('td')!;
+        expect(td.className).toContain('bg-green');
+        expect(td.textContent).toContain('✓');
+        expect(td.textContent).not.toContain('!');
+    });
+
+    describe('needsReview', () => {
+        it('flags non-high-trust cells until they are manually verified', () => {
+            expect(needsReview(cell('x', 'low'))).toBe(true);
+            expect(needsReview(cell('x', 'medium'))).toBe(true);
+            expect(needsReview(cell('x', 'high'))).toBe(false);
+            expect(needsReview({ ...cell('x', 'low'), verified: true })).toBe(false);
+        });
+    });
+
+    describe('inline editing', () => {
+        const editProps = () => ({
+            onStartEdit: vi.fn(),
+            onCommitEdit: vi.fn(),
+            onCancelEdit: vi.fn(),
+        });
+
+        it('opens the editor via double-click through onStartEdit', () => {
+            const props = editProps();
+            const rows = [[cell('Head', 'high')], [cell('Body', 'high', { rowIndex: 1 })]];
+            render(
+                <ProvenanceTable rows={rows} onCellClick={vi.fn()} selectedCell={null} editingCell={null} {...props} />,
+            );
+            fireEvent.doubleClick(screen.getByText('Body'));
+            expect(props.onStartEdit).toHaveBeenCalledWith(rows[1][0]);
+        });
+
+        it('renders an input for the editing cell; Enter commits the typed value', () => {
+            const props = editProps();
+            const rows = [[cell('Head', 'high')], [cell('90', 'low', { rowIndex: 1 })]];
+            render(
+                <ProvenanceTable
+                    rows={rows}
+                    onCellClick={vi.fn()}
+                    selectedCell={{ rowIndex: 1, colIndex: 0 }}
+                    editingCell={{ rowIndex: 1, colIndex: 0 }}
+                    {...props}
+                />,
+            );
+            const input = screen.getByLabelText('Edit cell value') as HTMLInputElement;
+            expect(input.value).toBe('90');
+            fireEvent.change(input, { target: { value: '98' } });
+            fireEvent.keyDown(input, { key: 'Enter' });
+            expect(props.onCommitEdit).toHaveBeenCalledWith(rows[1][0], '98');
+        });
+
+        it('Escape cancels without committing; blur with no change also cancels', () => {
+            const props = editProps();
+            const rows = [[cell('Head', 'high')], [cell('90', 'low', { rowIndex: 1 })]];
+            render(
+                <ProvenanceTable
+                    rows={rows}
+                    onCellClick={vi.fn()}
+                    selectedCell={null}
+                    editingCell={{ rowIndex: 1, colIndex: 0 }}
+                    {...props}
+                />,
+            );
+            const input = screen.getByLabelText('Edit cell value');
+            fireEvent.keyDown(input, { key: 'Escape' });
+            fireEvent.blur(input);
+            expect(props.onCancelEdit).toHaveBeenCalled();
+            expect(props.onCommitEdit).not.toHaveBeenCalled();
+        });
+
+        it('blur commits when the value changed', () => {
+            const props = editProps();
+            const rows = [[cell('Head', 'high')], [cell('90', 'low', { rowIndex: 1 })]];
+            render(
+                <ProvenanceTable
+                    rows={rows}
+                    onCellClick={vi.fn()}
+                    selectedCell={null}
+                    editingCell={{ rowIndex: 1, colIndex: 0 }}
+                    {...props}
+                />,
+            );
+            const input = screen.getByLabelText('Edit cell value');
+            fireEvent.change(input, { target: { value: '95' } });
+            fireEvent.blur(input);
+            expect(props.onCommitEdit).toHaveBeenCalledWith(rows[1][0], '95');
+        });
     });
 });

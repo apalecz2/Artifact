@@ -1,6 +1,6 @@
 import type { OcrWord, BoundingBox } from '../ocr/types';
 import { sortWords, groupWordsIntoLines } from '../../utils/ocrTransforms';
-import type { CellProvenance } from './types';
+import type { CellProvenance, ProvenanceCell } from './types';
 
 export const normalize = (s: string): string =>
     s.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -21,6 +21,31 @@ export const sanitizeWordsForProvenance = (words: OcrWord[], naturalHeight: numb
             return stripped.length > 0 ? { ...w, text: stripped } : w;
         })
         .filter(w => w.text.length > 0);
+
+// The model may omit trailing empty cells from a TSV row entirely (no trailing
+// tab), leaving the parsed grid ragged — most visibly, an empty bottom-right
+// cell simply doesn't exist, so the table renders without it. Pad every short
+// row to the grid's widest row with synthetic empty cells (same shape/confidence
+// computeProvenanceCells gives a clean empty cell) so the table is always
+// rectangular. Applied at the state boundary, so it also repairs ragged grids
+// persisted by earlier versions. Returns the input untouched when already
+// rectangular.
+export const padProvenanceGrid = (rows: ProvenanceCell[][]): ProvenanceCell[][] => {
+    const width = rows.reduce((w, row) => Math.max(w, row.length), 0);
+    if (rows.every(row => row.length === width)) return rows;
+    return rows.map((row, r) =>
+        row.length === width ? row : [
+            ...row,
+            ...Array.from({ length: width - row.length }, (_, i): ProvenanceCell => ({
+                rowIndex: r,
+                colIndex: row.length + i,
+                value: '',
+                wordIds: [],
+                matchStatus: 'empty',
+                confidence: { llmMean: null, llmMin: null, ocr: null, agreement: 'agree', trust: 'high' },
+            })),
+        ]);
+};
 
 const unionBoxes = (boxes: BoundingBox[]): BoundingBox => {
     const left   = Math.min(...boxes.map(b => b.left));

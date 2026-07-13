@@ -3,17 +3,53 @@ import {
     matchCellsToOcr,
     getCellSourceBox,
     sanitizeWordsForProvenance,
+    padProvenanceGrid,
     levenshtein,
     similarity,
     normalize,
 } from './provenance';
-import { ocrWord as word } from '../../test/fixtures';
+import { ocrWord as word, provenanceCell } from '../../test/fixtures';
 
 describe('normalize', () => {
     it('lowercases and strips non-alphanumerics', () => {
         expect(normalize('1,250')).toBe('1250');
         expect(normalize('Calc.')).toBe('calc');
         expect(normalize('  A-B ')).toBe('ab');
+    });
+});
+
+describe('padProvenanceGrid', () => {
+    it('pads short rows with synthetic empty cells up to the widest row', () => {
+        const rows = [
+            [provenanceCell('A', { rowIndex: 0, colIndex: 0 }), provenanceCell('B', { rowIndex: 0, colIndex: 1 })],
+            [provenanceCell('x', { rowIndex: 1, colIndex: 0 })], // trailing empty cell omitted by the model
+        ];
+        const padded = padProvenanceGrid(rows);
+        expect(padded[1]).toHaveLength(2);
+        const synth = padded[1][1];
+        expect(synth).toMatchObject({
+            rowIndex: 1,
+            colIndex: 1,
+            value: '',
+            wordIds: [],
+            matchStatus: 'empty',
+        });
+        // Same confidence a clean empty cell gets from computeProvenanceCells.
+        expect(synth.confidence).toEqual({
+            llmMean: null, llmMin: null, ocr: null, agreement: 'agree', trust: 'high',
+        });
+        // Existing cells are untouched.
+        expect(padded[0]).toBe(rows[0]);
+        expect(padded[1][0]).toBe(rows[1][0]);
+    });
+
+    it('returns a rectangular grid unchanged (same reference)', () => {
+        const rows = [
+            [provenanceCell('A'), provenanceCell('B', { colIndex: 1 })],
+            [provenanceCell('x', { rowIndex: 1 }), provenanceCell('y', { rowIndex: 1, colIndex: 1 })],
+        ];
+        expect(padProvenanceGrid(rows)).toBe(rows);
+        expect(padProvenanceGrid([])).toEqual([]);
     });
 });
 
