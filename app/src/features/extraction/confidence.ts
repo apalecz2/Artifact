@@ -166,6 +166,26 @@ export const computeProvenanceCells = (
 
     return cellProvenance.map((row, r) =>
         row.map((cell, c): ProvenanceCell => {
+            // A blank cell has no value tokens and no matched words to score —
+            // its verification is spatial, done by provenance. wordIds on an
+            // empty cell are *overlooked* words (unclaimed OCR text found at the
+            // cell's location): the source shows text where the model output
+            // nothing, a genuine disagreement to surface. A clean empty is
+            // agreement — blank output over a blank region — not a low score.
+            if (cell.matchStatus === "empty") {
+                const overlooked = cell.wordIds.length > 0;
+                return {
+                    ...cell,
+                    confidence: {
+                        llmMean: null,
+                        llmMin: null,
+                        ocr: null,
+                        agreement: overlooked ? "disagree" : "agree",
+                        trust: overlooked ? "low" : "high",
+                    },
+                };
+            }
+
             const indices = tokenIndicesMap[r]?.[c] ?? [];
             const cellStart = cellRanges[r]?.[c]?.start ?? 0;
             // Exclude two kinds of tokens from the value score:

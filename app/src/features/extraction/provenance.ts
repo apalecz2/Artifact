@@ -179,8 +179,10 @@ type RowRange = { start: number; end: number };
 
 type TableGrid = {
     lines: number[][];              // word indices per visual line, reading order
-    wordCol: number[];              // column index per word, parallel to ocrWords
-    columnCount: number;
+    wordCol: number[];              // column *band* index per word, parallel to ocrWords
+    // TSV column index -> detected band index; -1 for an all-empty TSV column,
+    // which has no ink in the image and therefore no band of its own.
+    colToBand: number[];
     rowRanges: (RowRange | null)[]; // per TSV row; null = row absent from OCR
 };
 
@@ -279,26 +281,32 @@ function detectColumnSeparators(
 // Align TSV rows to visual lines by content (Needleman–Wunsch-style DP).
 // A row may consume 1..MAX_ROW_SPAN consecutive lines (wrapped cells), a line
 // may be skipped (noise the model excluded), and a row may consume no lines
-// (OCR dropped it). Span similarity is computed per column — words are bucketed
-// by their column band and concatenated across the span — which un-interleaves
+// (OCR dropped it). Span similarity is computed per column band — words are
+// bucketed by band and concatenated across the span — which un-interleaves
 // wrapped content so a two-line row still scores ~1.0 against its cells.
+// All-empty TSV columns have no band (colToBand -1) and are simply absent from
+// the comparison — they contribute no text on either side.
 function alignRowsToLines(
     csvRows: string[][],
     lines: number[][],
     wordCol: number[],
-    columnCount: number,
+    bandCount: number,
+    colToBand: number[],
     ocrWords: OcrWord[],
 ): (RowRange | null)[] {
     const R = csvRows.length, L = lines.length;
 
     const lineColText: string[][] = lines.map(line => {
-        const cols = new Array<string>(columnCount).fill("");
+        const cols = new Array<string>(bandCount).fill("");
         for (const i of line) cols[wordCol[i]] += normalize(ocrWords[i].text);
         return cols;
     });
     const rowNorm: string[][] = csvRows.map(row => {
-        const cols = new Array<string>(columnCount).fill("");
-        for (let c = 0; c < Math.min(row.length, columnCount); c++) cols[c] = normalize(row[c]);
+        const cols = new Array<string>(bandCount).fill("");
+        for (let c = 0; c < row.length; c++) {
+            const band = colToBand[c] ?? -1;
+            if (band >= 0) cols[band] += normalize(row[c]);
+        }
         return cols;
     });
 
@@ -306,12 +314,12 @@ function alignRowsToLines(
     // words in lines [startLine, endLine]. Columns empty on both sides carry no
     // weight (an empty cell over an empty band is agreement, not evidence).
     const rowSim = (r: number, startLine: number, endLine: number): number => {
-        const combined = new Array<string>(columnCount).fill("");
+        const combined = new Array<string>(bandCount).fill("");
         for (let l = startLine; l <= endLine; l++) {
-            for (let c = 0; c < columnCount; c++) combined[c] += lineColText[l][c];
+            for (let c = 0; c < bandCount; c++) combined[c] += lineColText[l][c];
         }
         let num = 0, den = 0;
-        for (let c = 0; c < columnCount; c++) {
+        for (let c = 0; c < bandCount; c++) {
             const a = rowNorm[r][c], b = combined[c];
             const w = Math.max(a.length, b.length);
             if (w === 0) continue;
@@ -375,6 +383,26 @@ function detectTableGrid(
     // A single-column table has no geometry to exploit — the walk handles it.
     if (columnCount < 2) return null;
 
+    // An all-empty TSV column has no ink in the image, so its band and the two
+    // gaps flanking it merge into a single whitespace channel — demanding a
+    // separator for it would fail detection (or promote an accidental channel)
+    // and cost the whole table its grid. Geometry is therefore detected over
+    // content-bearing columns only; empty columns keep their TSV index but map
+    // to no band (their cells have nothing to match anyway).
+    const hasContent = new Array<boolean>(columnCount).fill(false);
+    for (const row of csvRows) {
+        const n = Math.min(row.length, columnCount);
+        for (let c = 0; c < n; c++) {
+            if (!hasContent[c] && normalize(row[c])) hasContent[c] = true;
+        }
+    }
+    const colToBand: number[] = new Array(columnCount).fill(-1);
+    let bandCount = 0;
+    for (let c = 0; c < columnCount; c++) {
+        if (hasContent[c]) colToBand[c] = bandCount++;
+    }
+    if (bandCount < 2) return null;
+
     // Reuse the canonical line grouping so the grid can never disagree with the
     // reading order sanitizeWordsForProvenance produced. When the caller has no
     // image height handy, the words' own extent gives the same ~0.5% threshold.
@@ -384,7 +412,7 @@ function detectTableGrid(
     const lines = groupWordsIntoLines(ocrWords, height)
         .map(line => line.map(w => idxOf.get(w.id)!));
 
-    const separators = detectColumnSeparators(ocrWords, columnCount, lines.length);
+    const separators = detectColumnSeparators(ocrWords, bandCount, lines.length);
     if (!separators) return null;
 
     // A word belongs to the column band its horizontal center falls in, so
@@ -396,8 +424,8 @@ function detectTableGrid(
         return col;
     });
 
-    const rowRanges = alignRowsToLines(csvRows, lines, wordCol, columnCount, ocrWords);
-    return { lines, wordCol, columnCount, rowRanges };
+    const rowRanges = alignRowsToLines(csvRows, lines, wordCol, bandCount, colToBand, ocrWords);
+    return { lines, wordCol, colToBand, rowRanges };
 }
 
 // Primary pass: match each cell against the unclaimed OCR words inside its own
@@ -415,12 +443,13 @@ function gridMatchCells(
         if (!rowRange) continue;
         for (const cell of working[r]) {
             const target = normalize(cell.value);
-            if (!target || cell.colIndex >= grid.columnCount) continue;
+            const band = grid.colToBand[cell.colIndex] ?? -1;
+            if (!target || band < 0) continue;
 
             const candidates: number[] = [];
             for (let l = rowRange.start; l <= rowRange.end; l++) {
                 for (const i of grid.lines[l]) {
-                    if (grid.wordCol[i] === cell.colIndex && !claimed.has(i)) candidates.push(i);
+                    if (grid.wordCol[i] === band && !claimed.has(i)) candidates.push(i);
                 }
             }
             const best = bestRunMatch(ocrWords, candidates, target);
@@ -580,13 +609,92 @@ function gridMatchPass(
     }
 }
 
+// Minimum total normalized characters of unclaimed text inside an empty cell's
+// region before the cell is flagged as possibly missing content — a lone stray
+// glyph (a rule-line artifact, a speck OCR'd as punctuation) is not evidence.
+const MIN_OVERLOOKED_CHARS = 2;
+
+// Emptiness verification (final pass). An empty TSV cell is a claim — "the
+// source is blank here" — that no matching pass can check, because there is
+// nothing to match. This pass checks it spatially: the cell's row band comes
+// from the words its row siblings matched, its column band from the words its
+// column matched in other rows — or, for an all-empty column, from the gap
+// between the nearest anchored columns on each side. Unclaimed OCR words whose
+// centers fall inside both bands are text the model produced nothing for: the
+// cell keeps status "empty" but carries those words' ids, so the UI can warn
+// about possibly dropped content and highlight exactly what was skipped.
+// Claimed words are never counted — content attributed to another cell is not
+// "overlooked" — and a region below MIN_OVERLOOKED_CHARS stays unflagged.
+// Cells whose region cannot be located from anchors are left unflagged
+// (unverifiable, not suspicious).
+function verifyEmptyCellsPass(
+    result: WorkingCell[][],
+    ocrWords: OcrWord[],
+    claimed: Set<number>,
+): void {
+    const columnSpanAt = (c: number, excludeRow: number): Span | null =>
+        horizontalSpan(
+            result.map(row => row[c]).filter((cell, ri) => ri !== excludeRow && cell !== undefined),
+            ocrWords,
+        );
+
+    const columnRegion = (r: number, c: number): Span | null => {
+        const own = columnSpanAt(c, r);
+        if (own) return own;
+        // All-empty column: no anchor of its own, so bound its region by the
+        // nearest anchored columns on each side. Requiring both sides keeps a
+        // first/last empty column unverified rather than sweeping in marginal
+        // text from outside the table.
+        const width = Math.max(...result.map(row => row.length));
+        let lo: number | null = null;
+        for (let cc = c - 1; cc >= 0 && lo === null; cc--) {
+            const span = columnSpanAt(cc, -1);
+            if (span) lo = span.hi;
+        }
+        let hi: number | null = null;
+        for (let cc = c + 1; cc < width && hi === null; cc++) {
+            const span = columnSpanAt(cc, -1);
+            if (span) hi = span.lo;
+        }
+        return lo !== null && hi !== null && lo < hi ? { lo, hi } : null;
+    };
+
+    for (let r = 0; r < result.length; r++) {
+        for (let c = 0; c < result[r].length; c++) {
+            const cell = result[r][c];
+            if (cell.matchStatus !== "empty") continue;
+
+            const rowBand = verticalSpan(result[r].filter((_, ci) => ci !== c), ocrWords);
+            if (!rowBand) continue;
+            const colBand = columnRegion(r, c);
+            if (!colBand) continue;
+
+            const overlooked: number[] = [];
+            let chars = 0;
+            for (let i = 0; i < ocrWords.length; i++) {
+                if (claimed.has(i)) continue;
+                const b = ocrWords[i].box_coords;
+                const cx = b.left + b.width / 2;
+                const cy = b.top + b.height / 2;
+                if (within(cx, colBand) && within(cy, rowBand)) {
+                    overlooked.push(i);
+                    chars += normalize(ocrWords[i].text).length;
+                }
+            }
+            if (chars >= MIN_OVERLOOKED_CHARS) cell.wordIdx = overlooked;
+        }
+    }
+}
+
 // Match TSV cells to their source OCR words.
 //
 // Pipeline: grid-first spatial matching (column bands from whitespace channels,
 // TSV rows aligned to visual lines by content) with the reading-order walk as
 // the fallback primary, then two recovery passes — fuzzy gap search and the
-// band-based grid cross-check — over whatever is still unmatched. All passes
-// share one claimed-word set, so no pass can steal another's placement.
+// band-based grid cross-check — over whatever is still unmatched, and finally
+// emptiness verification, which flags empty cells whose source region contains
+// text no cell claimed (possible dropped content). All matching passes share
+// one claimed-word set, so no pass can steal another's placement.
 //
 // `naturalHeight` is the source image height used for visual line grouping;
 // when omitted it is derived from the words' own extent.
@@ -595,9 +703,14 @@ export const matchCellsToOcr = (
     ocrWords: OcrWord[],
     naturalHeight?: number,
 ): CellProvenance[][] => {
+    // A blank cell is "empty", never "unmatched" — there is nothing to match,
+    // so it must not read as a failed match downstream (badge, low trust).
+    const initialStatus = (value: string): WorkingCell['matchStatus'] =>
+        normalize(value) ? "unmatched" : "empty";
+
     const working: WorkingCell[][] = csvRows.map((row, r) =>
         row.map((value, c): WorkingCell => ({
-            rowIndex: r, colIndex: c, value, wordIdx: [], matchStatus: "unmatched",
+            rowIndex: r, colIndex: c, value, wordIdx: [], matchStatus: initialStatus(value),
         })));
     const claimed = new Set<number>();
 
@@ -612,7 +725,7 @@ export const matchCellsToOcr = (
             for (const row of working) {
                 for (const cell of row) {
                     cell.wordIdx = [];
-                    cell.matchStatus = "unmatched";
+                    cell.matchStatus = initialStatus(cell.value);
                 }
             }
             claimed.clear();
@@ -623,6 +736,10 @@ export const matchCellsToOcr = (
     // Recovery passes for whatever the primary matcher could not place.
     fuzzyMatchPass(working, ocrWords, claimed);
     gridMatchPass(working, ocrWords, claimed);
+
+    // With every matchable cell placed, whatever text remains unclaimed inside
+    // an empty cell's region is possible dropped content — flag it.
+    verifyEmptyCellsPass(working, ocrWords, claimed);
 
     // Convert positional indices to stable UUIDs for storage/resolution.
     return working.map(row =>

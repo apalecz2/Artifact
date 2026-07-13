@@ -290,7 +290,7 @@ describe('matchCellsToOcr — grid-first spatial matching', () => {
 
         const prov = matchCellsToOcr(csv, w);
 
-        expect(prov[1][0].matchStatus).toBe('unmatched');
+        expect(prov[1][0].matchStatus).toBe('empty');
         expect(prov[1][0].wordIds).toEqual([]);
         expect(prov[2][0].wordIds).toEqual([ann.id]);
         expect(prov[2][1].wordIds).toEqual([five.id]);
@@ -315,6 +315,112 @@ describe('matchCellsToOcr — grid-first spatial matching', () => {
         expect(prov[1][0].wordIds).toEqual([c.id, d.id]);
         expect(prov[0][1].matchStatus).toBe('unmatched');
         expect(prov[1][1].matchStatus).toBe('unmatched');
+    });
+});
+
+describe('matchCellsToOcr — empty cells', () => {
+    it('marks blank cells "empty" and keeps the grid alive across an all-empty column', () => {
+        // The TSV's middle column is empty in every row (header included), so the
+        // image has no ink there and only ONE whitespace channel exists. Demanding
+        // a separator for the empty column would kill the grid and hand this table
+        // to the walk — which the OCR-dropped duplicate "Widget" row would desync
+        // (it would steal the second row's words). Detecting geometry over
+        // content-bearing columns only keeps the grid, and its row alignment
+        // leaves the dropped row missing.
+        const hItem  = word('Item', 0, 0, 40);
+        const hQty   = word('Qty', 200, 0, 30);
+        const widget = word('Widget', 0, 20, 60);
+        const seven  = word('7', 200, 20, 10);
+        const w = [hItem, hQty, widget, seven];
+        const csv = [['Item', '', 'Qty'], ['Widget', '', '5'], ['Widget', '', '7']];
+
+        const prov = matchCellsToOcr(csv, w);
+
+        expect(prov[0][0].wordIds).toEqual([hItem.id]);
+        expect(prov[0][2].wordIds).toEqual([hQty.id]);
+        expect(prov[1][0].matchStatus).toBe('unmatched'); // dropped row stays missing
+        expect(prov[2][0].wordIds).toEqual([widget.id]);
+        expect(prov[2][2].wordIds).toEqual([seven.id]);
+        // The empty column's cells are "empty" — blank, not failed matches.
+        for (const r of [0, 1, 2]) {
+            expect(prov[r][1].matchStatus).toBe('empty');
+            expect(prov[r][1].wordIds).toEqual([]);
+        }
+    });
+
+    it('flags an empty cell whose region contains text no cell claimed', () => {
+        // The source shows "77" where the model emitted a blank — possible
+        // dropped content. The cell stays "empty" but carries the overlooked
+        // word's id so the UI can warn and highlight exactly what was skipped.
+        const hName  = word('Name', 0, 0, 40);
+        const hScore = word('Score', 200, 0, 50);
+        const ann    = word('Ann', 0, 20, 30);
+        const five   = word('5', 200, 20, 10);
+        const bob    = word('Bob', 0, 40, 30);
+        const stray  = word('77', 200, 40, 20);
+        const w = [hName, hScore, ann, five, bob, stray];
+        const csv = [['Name', 'Score'], ['Ann', '5'], ['Bob', '']];
+
+        const prov = matchCellsToOcr(csv, w);
+
+        expect(prov[2][1].matchStatus).toBe('empty');
+        expect(prov[2][1].wordIds).toEqual([stray.id]);
+    });
+
+    it('leaves an empty cell over a genuinely blank region unflagged', () => {
+        const hName  = word('Name', 0, 0, 40);
+        const hScore = word('Score', 200, 0, 50);
+        const ann    = word('Ann', 0, 20, 30);
+        const five   = word('5', 200, 20, 10);
+        const bob    = word('Bob', 0, 40, 30);
+        const w = [hName, hScore, ann, five, bob];
+        const csv = [['Name', 'Score'], ['Ann', '5'], ['Bob', '']];
+
+        const prov = matchCellsToOcr(csv, w);
+
+        expect(prov[2][1].matchStatus).toBe('empty');
+        expect(prov[2][1].wordIds).toEqual([]);
+    });
+
+    it('does not flag sub-threshold noise (a stray rule-line glyph) in an empty region', () => {
+        // A lone "|" normalizes to nothing, so it can never clear
+        // MIN_OVERLOOKED_CHARS — a rule-line artifact is not dropped content.
+        const hName  = word('Name', 0, 0, 40);
+        const hScore = word('Score', 200, 0, 50);
+        const ann    = word('Ann', 0, 20, 30);
+        const five   = word('5', 200, 20, 10);
+        const bob    = word('Bob', 0, 40, 30);
+        const pipe   = word('|', 205, 40, 5);
+        const w = [hName, hScore, ann, five, bob, pipe];
+        const csv = [['Name', 'Score'], ['Ann', '5'], ['Bob', '']];
+
+        const prov = matchCellsToOcr(csv, w);
+
+        expect(prov[2][1].matchStatus).toBe('empty');
+        expect(prov[2][1].wordIds).toEqual([]);
+    });
+
+    it('flags an all-empty column whose image region contains text (dropped column)', () => {
+        // The model emitted an entire column as blanks, but the image has words
+        // there. The column has no matched anchor of its own, so its region is
+        // bounded by the nearest anchored columns on each side; the unclaimed
+        // middle words flag each row's empty cell.
+        const hA = word('Alpha', 0, 0, 50);
+        const m1 = word('Mid1', 100, 0, 40);
+        const hC = word('Gamma', 200, 0, 50);
+        const a1 = word('a1', 0, 20, 20);
+        const m2 = word('Mid2', 100, 20, 40);
+        const c1 = word('c1', 200, 20, 20);
+        const w = [hA, m1, hC, a1, m2, c1];
+        const csv = [['Alpha', '', 'Gamma'], ['a1', '', 'c1']];
+
+        const prov = matchCellsToOcr(csv, w);
+
+        expect(prov[0][0].wordIds).toEqual([hA.id]);
+        expect(prov[1][2].wordIds).toEqual([c1.id]);
+        expect(prov[0][1].matchStatus).toBe('empty');
+        expect(prov[0][1].wordIds).toEqual([m1.id]);
+        expect(prov[1][1].wordIds).toEqual([m2.id]);
     });
 });
 

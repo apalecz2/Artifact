@@ -24,7 +24,28 @@ const TRUST_TEXT: Record<TrustLevel, string> = {
     low:    'text-red-900 dark:text-red-200',
 };
 
+// Blank cells follow the empty-cell rules: sessions persisted before the
+// "empty" status existed stored them as unmatched/image_only, so a blank value
+// is accepted as the signal too — either way, "blank" must not render as a
+// failed match.
+function isEmptyCell(cell: ProvenanceCell): boolean {
+    return cell.matchStatus === 'empty' || cell.value.trim() === '';
+}
+
+// An empty cell carrying wordIds means provenance found unclaimed OCR text at
+// the cell's location — the model may have dropped content. (Legacy blank
+// cells never carry wordIds, so this only fires on new extractions.)
+function hasOverlookedText(cell: ProvenanceCell): boolean {
+    return isEmptyCell(cell) && cell.wordIds.length > 0;
+}
+
 function cellTooltip(cell: ProvenanceCell): string {
+    if (hasOverlookedText(cell)) {
+        return 'Blank cell, but unextracted text was found at this spot — click to see it in the source';
+    }
+    if (isEmptyCell(cell)) {
+        return 'Blank cell';
+    }
     if (cell.confidence.agreement === 'image_only') {
         return 'No matching OCR word — value read from image only';
     }
@@ -40,6 +61,11 @@ function cellTooltip(cell: ProvenanceCell): string {
 }
 
 function trustColor(cell: ProvenanceCell): string {
+    // Overlooked text is a real warning (possible dropped content) — red like
+    // low trust. A plain blank cell is neutral: no tint and no trust color, so
+    // a sparse table doesn't read as a wall of warnings.
+    if (hasOverlookedText(cell)) return `${TRUST_BG.low} ${TRUST_TEXT.low}`;
+    if (isEmptyCell(cell)) return 'text-on-surface-variant hover:bg-surface-variant/40';
     return cell.confidence.agreement === 'image_only'
         ? 'bg-surface-variant/60 text-on-surface-variant hover:bg-surface-variant'
         : `${TRUST_BG[cell.confidence.trust]} ${TRUST_TEXT[cell.confidence.trust]}`;
@@ -65,12 +91,25 @@ function headerClasses(cell: ProvenanceCell, isSelected: boolean): string {
     return `${base} ${trustColor(cell)}${ring}`;
 }
 
-// The "?" (no OCR source), "≈" (approximate match) and "!" (low confidence)
-// indicators, shared by header and data cells. The "!" gives a low-trust cell a
-// signal that isn't hue alone — the red tint is indistinguishable from green for
-// red-green color-blind users (review #10). It's suppressed when another badge
-// already marks the cell, so no cell ever carries two.
+// The "?" (no OCR source), "≈" (approximate match) and "!" (low confidence /
+// overlooked text) indicators, shared by header and data cells. The "!" gives a
+// low-trust cell a signal that isn't hue alone — the red tint is
+// indistinguishable from green for red-green color-blind users (review #10).
+// It's suppressed when another badge already marks the cell, so no cell ever
+// carries two. Blank cells are badge-free unless overlooked source text was
+// found at their location.
 function CellBadges({ cell }: { cell: ProvenanceCell }) {
+    if (isEmptyCell(cell)) {
+        if (!hasOverlookedText(cell)) return null;
+        return (
+            <span
+                className="inline-flex shrink-0 items-center justify-center rounded-full bg-surface-variant px-1 text-[10px] font-medium leading-tight text-on-surface-variant"
+                title="Blank cell, but unextracted text was found here — click to review the source"
+            >
+                !
+            </span>
+        );
+    }
     const imageOnly = cell.confidence.agreement === 'image_only';
     const fuzzy = cell.matchStatus === 'fuzzy';
     return (

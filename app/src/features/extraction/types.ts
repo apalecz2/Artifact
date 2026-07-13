@@ -46,7 +46,13 @@ export type CellProvenance = {
     colIndex: number;
     value: string;
     wordIds: string[];      // stable OcrWord UUIDs (OcrWord.id) — survive add/edit/delete reordering
-    matchStatus: "matched" | "multi_word" | "fuzzy" | "unmatched";
+    // "empty" = the cell is blank in the TSV. For empty cells wordIds are not
+    // source words: when non-empty they are *overlooked* words — unclaimed OCR
+    // text found inside the cell's region, i.e. the model may have dropped
+    // content there. wordIds empty means no such text was found (or the region
+    // could not be located). Sessions persisted before "empty" existed store
+    // blank cells as "unmatched"; consumers treat a blank value as empty too.
+    matchStatus: "matched" | "multi_word" | "fuzzy" | "unmatched" | "empty";
 };
 
 export type TokenLogprob = {

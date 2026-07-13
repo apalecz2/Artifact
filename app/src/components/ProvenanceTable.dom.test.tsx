@@ -7,7 +7,11 @@ import { provenanceCell } from '../test/fixtures';
 const cell = (
     value: string,
     trust: TrustLevel,
-    over: { agreement?: AgreementStatus; matchStatus?: ProvenanceCell['matchStatus'] } = {},
+    over: {
+        agreement?: AgreementStatus;
+        matchStatus?: ProvenanceCell['matchStatus'];
+        wordIds?: string[];
+    } = {},
 ) => provenanceCell(value, { trust, ...over });
 
 describe('ProvenanceTable', () => {
@@ -79,6 +83,48 @@ describe('ProvenanceTable', () => {
         const fuzCell = screen.getByText('fuz').closest('td')!;
         expect(fuzCell.textContent).toContain('≈');
         expect(fuzCell.textContent).not.toContain('!');
+    });
+
+    it('renders a blank cell neutrally — no trust tint, no badge', () => {
+        const rows = [
+            [cell('Head', 'high')],
+            [cell('', 'high', { agreement: 'agree', matchStatus: 'empty' })],
+        ];
+        const { container } = render(
+            <ProvenanceTable rows={rows} onCellClick={vi.fn()} selectedCell={null} />,
+        );
+        const td = container.querySelector('tbody td')!;
+        expect(td.className).not.toMatch(/bg-(green|amber|red)/);
+        expect(td.textContent).toBe('');
+    });
+
+    it('renders a legacy blank cell (pre-"empty" status) neutrally, without the ? badge', () => {
+        // Old sessions persisted blank cells as unmatched/image_only — they must
+        // not surface as "unverified source" warnings.
+        const rows = [
+            [cell('Head', 'high')],
+            [cell('', 'low', { agreement: 'image_only', matchStatus: 'unmatched' })],
+        ];
+        const { container } = render(
+            <ProvenanceTable rows={rows} onCellClick={vi.fn()} selectedCell={null} />,
+        );
+        const td = container.querySelector('tbody td')!;
+        expect(td.textContent).not.toContain('?');
+        expect(td.className).not.toMatch(/bg-(green|amber|red)/);
+    });
+
+    it('warns on a blank cell that carries overlooked source text', () => {
+        const rows = [
+            [cell('Head', 'high')],
+            [cell('', 'low', { agreement: 'disagree', matchStatus: 'empty', wordIds: ['w9'] })],
+        ];
+        const { container } = render(
+            <ProvenanceTable rows={rows} onCellClick={vi.fn()} selectedCell={null} />,
+        );
+        const td = container.querySelector('tbody td')!;
+        expect(td.className).toContain('bg-red');
+        expect(td.textContent).toContain('!');
+        expect(screen.getByTitle(/unextracted text was found here/)).toBeInTheDocument();
     });
 
     it('header cells get trust colours, not a flat gray', () => {

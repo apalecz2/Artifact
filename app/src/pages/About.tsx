@@ -55,8 +55,8 @@ export default function About(): React.ReactElement {
                         Your documents.<br />Your data.<br />Your machine.
                     </h1>
                     <p className="font-body-lg text-body-lg text-on-surface-variant max-w-xl">
-                        Anchor transforms unstructured documents — handwritten notes, image-based tables, scanned
-                        PDFs — into clean, structured data. Everything runs locally on your hardware. Nothing leaves
+                        Anchor transforms unstructured documents (handwritten notes, image-based tables, scanned
+                        PDFs) into clean, structured data. Everything runs locally on your hardware. Nothing leaves
                         your machine.
                     </p>
                 </section>
@@ -66,7 +66,7 @@ export default function About(): React.ReactElement {
                     <div>
                         <h2 className="font-headline-lg text-headline-lg text-on-surface mb-3">The problem with document data</h2>
                         <p className="font-body-lg text-body-lg text-on-surface-variant max-w-2xl">
-                            Most valuable data is trapped in formats machines can't read — PDFs rendered as images,
+                            Most valuable data is trapped in formats machines can't read: PDFs rendered as images,
                             tables photographed on phones, handwritten records never digitized. Getting that data out
                             today means one of two things: expensive cloud APIs that expose your most sensitive
                             information, or hours of manual re-entry riddled with human error.
@@ -76,7 +76,7 @@ export default function About(): React.ReactElement {
                         {[
                             { icon: 'cloud_off', label: 'Cloud APIs expose sensitive records to third-party servers' },
                             { icon: 'schedule', label: 'Manual data entry is slow, costly, and error-prone' },
-                            { icon: 'search_off', label: 'Verification is tedious — no link between source and output' },
+                            { icon: 'search_off', label: 'Verification is tedious, with no link between source and output' },
                         ].map(({ icon, label }) => (
                             <div key={icon} className="flex gap-3 items-start rounded-[10px] border border-outline-variant bg-surface-container p-4">
                                 <Icon name={icon} size={18} weight={300} className="text-on-surface-variant shrink-0 mt-0.5" />
@@ -108,7 +108,7 @@ export default function About(): React.ReactElement {
                         <FeatureCard
                             icon="account_tree"
                             title="Deterministic source matching"
-                            body="A code-based reading-order walk links each extracted cell back to the OCR words it came from — no extra model tokens, no latency. A fuzzy second pass recovers single-character OCR misreads and flags them as approximate so you know exactly what to double-check."
+                            body="A code-based reading-order walk links each extracted cell back to the OCR words it came from, with no extra model tokens and no latency. A fuzzy second pass recovers single-character OCR misreads and flags them as approximate so you know exactly what to double-check."
                         />
                     </div>
                 </section>
@@ -133,7 +133,7 @@ export default function About(): React.ReactElement {
                         <StepRow
                             number="3"
                             title="OCR image preprocessing"
-                            body="A separate copy is prepared just for Tesseract — converted to grayscale and, for small image uploads, upscaled with Lanczos resampling. Binarization is left to Tesseract's own thresholding, which handles thin antialiased glyphs better than a hard threshold. The original image is untouched and is what the AI and the UI see. When a copy is upscaled, every returned bounding box is divided back by the scale factor so click-to-highlight boxes always land on the right spot in the original image."
+                            body="A separate copy is prepared just for Tesseract: converted to grayscale and, for small image uploads, upscaled with Lanczos resampling. Binarization is left to Tesseract's own thresholding, which handles thin antialiased glyphs better than a hard threshold. The original image is untouched and is what the AI and the UI see. When a copy is upscaled, every returned bounding box is divided back by the scale factor so click-to-highlight boxes always land on the right spot in the original image."
                         />
                         <StepRow
                             number="4"
@@ -142,18 +142,18 @@ export default function About(): React.ReactElement {
                         />
                         <StepRow
                             number="5"
-                            title="Stage 1 — AI extraction"
-                            body="The local vision-language model reads the document image alongside the spatially-arranged OCR text and emits a clean CSV table. It runs with greedy decoding and no constraints — the settings that produce reliably correct output. Token log-probabilities are captured during streaming."
+                            title="Stage 1: AI extraction"
+                            body="The local vision-language model reads the document image alongside the spatially-arranged OCR text and emits a clean CSV table. It runs with greedy decoding and no constraints: the settings that produce reliably correct output. Token log-probabilities are captured during streaming."
                         />
                         <StepRow
                             number="6"
-                            title="Stage 2 — Provenance matching"
-                            body="A deterministic algorithm walks the CSV cells and OCR words in parallel, in the same reading order. Each cell is linked to the OCR word it came from — even when dozens of cells share identical values, sequence position disambiguates them. No model tokens, no latency."
+                            title="Stage 2: Provenance matching"
+                            body="A deterministic algorithm walks the CSV cells and OCR words in parallel, in the same reading order. Each cell is linked to the OCR word it came from. Even when dozens of cells share identical values, sequence position disambiguates them. No model tokens, no latency."
                         />
                         <StepRow
                             number="7"
                             title="Confidence scoring"
-                            body="Each cell receives three signals: AI token log-probability (mean and minimum), Tesseract OCR word confidence, and source agreement. These are blended into a trust level — high, medium, or low — that drives the color heatmap in the output table."
+                            body="Each cell receives three signals: AI token log-probability (mean and minimum), Tesseract OCR word confidence, and source agreement. These are blended into a trust level (high, medium, or low) that drives the color heatmap in the output table."
                         />
                         <StepRow
                             number="8"
@@ -174,11 +174,11 @@ export default function About(): React.ReactElement {
                     <div className="rounded-[10px] border border-outline-variant bg-surface-container divide-y divide-outline-variant">
                         {[
                             { label: 'Interface', value: 'React + TypeScript', note: 'Type-safe, high-interactivity UI' },
-                            { label: 'Framework', value: 'Tauri', note: 'Lightweight native desktop shell — lower overhead than Electron' },
+                            { label: 'Framework', value: 'Tauri', note: 'Lightweight native desktop shell with lower overhead than Electron' },
                             { label: 'AI runtime', value: 'llama.cpp server', note: 'Model-agnostic inference; swap models without rebuilding' },
                             { label: 'Vision model', value: 'Qwen3.5-4b (multimodal)', note: 'Handles vision tasks and OCR validation locally' },
                             { label: 'OCR engine', value: 'Tesseract', note: 'Word-level bounding boxes and per-character confidence' },
-                            { label: 'Image preprocessing', value: 'image (Rust)', note: 'Grayscale and Lanczos upscaling before OCR; Tesseract handles binarization internally — no system OpenCV dependency' },
+                            { label: 'Image preprocessing', value: 'image (Rust)', note: 'Grayscale and Lanczos upscaling before OCR; Tesseract handles binarization internally, with no system OpenCV dependency' },
                             { label: 'PDF rendering', value: 'PDFium', note: 'High-fidelity 2000px renders from native PDF pages' },
                             { label: 'Storage', value: 'SQLite (local)', note: 'Session and file metadata stored entirely on-device' },
                         ].map(({ label, value, note }) => (
@@ -226,14 +226,14 @@ export default function About(): React.ReactElement {
                             <h3 className="font-headline-md text-headline-md text-on-surface">Automatic detection</h3>
                             <p className="font-body-md text-body-md text-on-surface-variant">
                                 On first run, Anchor detects your graphics card and downloads the matching
-                                accelerated build — NVIDIA (CUDA), AMD (ROCm), or Apple Silicon (Metal).
+                                accelerated build: NVIDIA (CUDA), AMD (ROCm), or Apple Silicon (Metal).
                             </p>
                         </div>
                         <div className="rounded-[10px] border border-outline-variant bg-surface-container p-6 flex flex-col gap-3">
                             <p className="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">CPU fallback</p>
                             <h3 className="font-headline-md text-headline-md text-on-surface">Runs on any machine</h3>
                             <p className="font-body-md text-body-md text-on-surface-variant">
-                                No GPU required — Anchor runs the full pipeline on your CPU, and a GPU build
+                                No GPU required: Anchor runs the full pipeline on your CPU, and a GPU build
                                 automatically falls back to CPU if acceleration can't initialize.
                             </p>
                         </div>

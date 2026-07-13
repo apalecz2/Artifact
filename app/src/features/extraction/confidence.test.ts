@@ -210,6 +210,34 @@ describe('computeProvenanceCells', () => {
         expect(cells[0][1].confidence.llmMean).toBeNull();
     });
 
+    it('treats a clean empty cell as agreement, not a failed match', () => {
+        // A blank cell whose region held no overlooked text: nothing to verify
+        // and nothing wrong — neutral/high, never "image_only" with a "?" badge.
+        const raw = 'Hi\t';
+        const prov: CellProvenance[][] = [[
+            { rowIndex: 0, colIndex: 0, value: 'Hi', wordIds: ['a'], matchStatus: 'matched' },
+            { rowIndex: 0, colIndex: 1, value: '', wordIds: [], matchStatus: 'empty' },
+        ]];
+        const cell = computeProvenanceCells(prov, [], raw, [wordA])[0][1];
+        expect(cell.confidence.agreement).toBe('agree');
+        expect(cell.confidence.trust).toBe('high');
+        expect(cell.confidence.llmMean).toBeNull();
+        expect(cell.confidence.ocr).toBeNull();
+    });
+
+    it('marks an empty cell carrying overlooked words as a disagreement', () => {
+        // Provenance found unclaimed OCR text at the blank cell's location — the
+        // model may have dropped content, which is exactly what "disagree" means.
+        const raw = 'Hi\t';
+        const prov: CellProvenance[][] = [[
+            { rowIndex: 0, colIndex: 0, value: 'Hi', wordIds: ['a'], matchStatus: 'matched' },
+            { rowIndex: 0, colIndex: 1, value: '', wordIds: ['b'], matchStatus: 'empty' },
+        ]];
+        const cell = computeProvenanceCells(prov, [], raw, [wordA, wordB])[0][1];
+        expect(cell.confidence.agreement).toBe('disagree');
+        expect(cell.confidence.trust).toBe('low');
+    });
+
     it('keeps the clean value tokens when only the first token is boundary-merged', () => {
         // raw = "AB\tCDE" -> cell1 content [3,6). Tokens: "\tC" (boundary, offset 2)
         // then "DE" (offset 4). The boundary token is dropped; "DE" still scores the
