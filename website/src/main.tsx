@@ -5,11 +5,13 @@ import LegalPage from './LegalPage';
 import { docIdForPath, LEGAL_DOCS } from './legal/legalContent';
 import './theme.css';
 
-// Honour the visitor's OS colour-scheme preference on first paint so the page
-// matches the system the way the app does, while still allowing the in-page toggle.
-if (window.matchMedia?.('(prefers-color-scheme: dark)').matches) {
-    document.documentElement.classList.add('dark');
-}
+// Theme (light/dark) is resolved before first paint by the inline script in
+// index.html — a saved choice from localStorage, else the OS preference — and that
+// script runs on every served page, including the pre-rendered legal routes. We
+// deliberately do NOT re-apply it here: this block ran *after* that script and
+// unconditionally re-added `dark` whenever the OS was dark, clobbering a saved
+// "light" choice, so the preference wouldn't hold on the legal pages (App.tsx seeds
+// its toggle from the class the inline script resolves — it's the source of truth).
 
 // Lightweight path routing: /privacy, /terms, /licenses render the standalone
 // legal pages (the permanent URLs the Store listing and the app link to); every

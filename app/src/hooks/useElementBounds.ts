@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 
 /**
  * Tracks an element's live bounding rect while `active`, updating on any
@@ -7,12 +7,20 @@ import { useEffect, useRef, useState } from 'react';
  * body-portaled overlay to one pane's footprint instead of the whole
  * viewport, without the overlay itself needing to live inside that pane's
  * (possibly `overflow-hidden`) DOM subtree.
+ *
+ * Pass `externalRef` to measure an element some other code already holds a
+ * ref to (e.g. a shared layout container) instead of allocating a new one.
+ *
+ * Measures via `useLayoutEffect`, not `useEffect`: the first measurement
+ * then lands before the browser paints, so a just-opened overlay never
+ * flashes at a fallback position first.
  */
-export function useElementBounds<T extends HTMLElement>(active: boolean): [React.RefObject<T | null>, DOMRect | null] {
-    const ref = useRef<T | null>(null);
+export function useElementBounds<T extends HTMLElement>(active: boolean, externalRef?: React.RefObject<T | null>): [React.RefObject<T | null>, DOMRect | null] {
+    const internalRef = useRef<T | null>(null);
+    const ref = externalRef ?? internalRef;
     const [bounds, setBounds] = useState<DOMRect | null>(null);
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         if (!active) return;
         const el = ref.current;
         if (!el) return;
@@ -27,7 +35,7 @@ export function useElementBounds<T extends HTMLElement>(active: boolean): [React
             ro.disconnect();
             window.removeEventListener('resize', update);
         };
-    }, [active]);
+    }, [active, ref]);
 
     return [ref, bounds];
 }

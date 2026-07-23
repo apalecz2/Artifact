@@ -6,8 +6,6 @@ If you believe you have found a security vulnerability in Anchor, its website, o
 download infrastructure (`anchor-assets.aidenpaleczny.com`), please report it privately:
 
 - **Email:** aiden.paleczny@gmail.com — use the subject line `[SECURITY] Anchor`.
-- Alternatively, use GitHub's **private vulnerability reporting** on this repository
-  ("Security" tab → "Report a vulnerability"), if enabled.
 
 Please include: a description of the issue, steps to reproduce, the app version
 (Settings → About) and OS, and any proof-of-concept. **Do not open a public issue for

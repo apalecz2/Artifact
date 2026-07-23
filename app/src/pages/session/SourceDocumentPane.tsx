@@ -8,6 +8,7 @@ import type { DocumentPageResult } from '../../features/extraction/types';
 import type { ProcessProgress } from '../../features/extraction/useDocumentExtraction';
 import type { BoundingBox } from '../../features/ocr/types';
 import { useElementBounds } from '../../hooks/useElementBounds';
+import { useSplitLayoutBounds } from '../../layouts/SplitLayout';
 import { iconBtnClass, HelpIsland } from './sessionToolbar';
 import { SourceHelp } from './SessionHelp';
 
@@ -16,7 +17,7 @@ type OverlayMode = 'all' | 'issues' | 'none';
 
 const OVERLAY_MODES: { value: OverlayMode; label: string; description: string }[] = [
     { value: 'all', label: 'All regions', description: 'Show every detected region, color-coded by confidence' },
-    { value: 'issues', label: 'Issues only', description: 'Dim high-confidence regions so only uncertain ones stand out' },
+    { value: 'issues', label: 'Low confidence only', description: 'Dim high-confidence regions so only uncertain ones stand out' },
     { value: 'none', label: 'No overlay', description: 'Hide the confidence overlay entirely' },
 ];
 
@@ -144,6 +145,7 @@ export function SourceDocumentPane(props: SourceDocumentPaneProps): React.ReactE
     // not the whole app window — see useElementBounds/HelpOverlay.
     const [helpOpen, setHelpOpen] = React.useState(false);
     const [paneRef, helpBounds] = useElementBounds<HTMLDivElement>(helpOpen);
+    const sessionBounds = useSplitLayoutBounds();
 
     // Reset whenever the source image changes (page switch, retry, or a new
     // session), so a prior failure doesn't stick to a freshly-loaded image.
@@ -369,7 +371,7 @@ export function SourceDocumentPane(props: SourceDocumentPaneProps): React.ReactE
             </div>
 
             {helpOpen && (
-                <HelpOverlay title="Source Document" onClose={() => setHelpOpen(false)} bounds={helpBounds}>
+                <HelpOverlay title="Source Document" onClose={() => setHelpOpen(false)} bounds={helpBounds} dimBounds={sessionBounds}>
                     <SourceHelp />
                 </HelpOverlay>
             )}

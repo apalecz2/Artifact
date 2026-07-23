@@ -20,14 +20,23 @@ export function HelpItem({ icon, title, children }: { icon: string; title: strin
 // ancestor (the @container panes) can't clip or mis-anchor it; closes on backdrop
 // click or Escape via the shared Modal/useDialogA11y scaffolding.
 //
-// `bounds` (from useElementBounds on the calling pane's own container) scopes the
-// dimmed backdrop — and therefore the centered panel — to that pane's footprint
-// instead of the whole app window, so "Source" help centers over the source pane
-// and "Output" help centers over the output pane. Falls back to full-viewport
-// centering if bounds aren't available yet.
-export function HelpOverlay({ title, onClose, children, bounds }: { title: string; onClose: () => void; children: React.ReactNode; bounds?: DOMRect | null }): React.ReactElement {
-    const backdropStyle: React.CSSProperties | undefined = bounds
-        ? { top: bounds.top, left: bounds.left, width: bounds.width, height: bounds.height }
+// `bounds` (from useElementBounds on the calling pane's own container) centers the
+// panel over that pane's footprint, so "Source" help centers over the source pane
+// and "Output" help centers over the output pane. `dimBounds` (the whole split-view
+// session, from useSplitLayoutBounds) sizes the dimmed backdrop instead — the shadow
+// should read as "the session is modal", not "this one pane is modal" — so it's
+// independent of which side the panel itself is anchored to. Both fall back to
+// full-viewport centering/dimming if unavailable.
+export function HelpOverlay({ title, onClose, children, bounds, dimBounds }: { title: string; onClose: () => void; children: React.ReactNode; bounds?: DOMRect | null; dimBounds?: DOMRect | null }): React.ReactElement {
+    const dimRect = dimBounds ?? bounds ?? null;
+    const backdropStyle: React.CSSProperties | undefined = dimRect
+        ? { top: dimRect.top, left: dimRect.left, width: dimRect.width, height: dimRect.height }
+        : undefined;
+
+    // Positioned independently of the backdrop's own rect (which may now span
+    // both panes) so the panel still lands over this pane specifically.
+    const panelStyle: React.CSSProperties | undefined = bounds
+        ? { position: 'fixed', top: bounds.top + bounds.height / 2, left: bounds.left + bounds.width / 2, transform: 'translate(-50%, -50%)' }
         : undefined;
 
     return (
@@ -36,8 +45,9 @@ export function HelpOverlay({ title, onClose, children, bounds }: { title: strin
             onClose={onClose}
             portal
             labelledBy="help-overlay-title"
-            backdropClassName={`fixed z-50 flex items-center justify-center bg-black/50 p-4 ${bounds ? '' : 'inset-0'}`}
+            backdropClassName={`fixed z-50 bg-black/50 ${dimRect ? '' : 'inset-0'} ${panelStyle ? '' : 'flex items-center justify-center p-4'}`}
             backdropStyle={backdropStyle}
+            panelStyle={panelStyle}
             className="flex max-h-[85%] w-full max-w-lg flex-col rounded-2xl border border-outline-variant bg-surface-bright shadow-xl focus:outline-none"
         >
             <div className="flex items-center justify-between border-b border-outline-variant px-6 py-4">

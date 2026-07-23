@@ -13,6 +13,7 @@ import type { ExtractionPhase } from '../../features/llama/useLlamaChat';
 import type { DocumentPageResult, ProvenanceCell } from '../../features/extraction/types';
 import type { LineWord } from '../../features/extraction/types';
 import { useElementBounds } from '../../hooks/useElementBounds';
+import { useSplitLayoutBounds } from '../../layouts/SplitLayout';
 import { HelpIsland, iconBtnClass } from './sessionToolbar';
 import { OutputHelp } from './SessionHelp';
 
@@ -181,6 +182,7 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
     // not the whole app window — see useElementBounds/HelpOverlay.
     const [helpOpen, setHelpOpen] = useState(false);
     const [paneRef, helpBounds] = useElementBounds<HTMLDivElement>(helpOpen);
+    const sessionBounds = useSplitLayoutBounds();
 
     // Cells worth a second look, in reading order — turns proofreading from a
     // scan of the whole table into a worklist (see the toolbar's review nav).
@@ -746,7 +748,7 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
             </div>
 
             {helpOpen && (
-                <HelpOverlay title="Extracted Text & Table" onClose={() => setHelpOpen(false)} bounds={helpBounds}>
+                <HelpOverlay title="Extracted Text & Table" onClose={() => setHelpOpen(false)} bounds={helpBounds} dimBounds={sessionBounds}>
                     <OutputHelp />
                 </HelpOverlay>
             )}
