@@ -41,6 +41,7 @@
 	--spacing-70: 18rem;
 
 	--font-display-lg: "Source Serif 4", Georgia, serif;
+	--font-display-sm: "Source Serif 4", Georgia, serif;
 	--font-headline-lg: "Source Serif 4", Georgia, serif;
 	--font-headline-md: "Source Serif 4", Georgia, serif;
 	--font-body-lg: "Source Serif 4", Georgia, serif;
@@ -51,6 +52,8 @@
 
 	--text-display-lg: 3rem;
 	--text-display-lg--line-height: 1.05;
+	--text-display-sm: 2.25rem;
+	--text-display-sm--line-height: 1.15;
 	--text-headline-lg: 2rem;
 	--text-headline-lg--line-height: 1.2;
 	--text-headline-md: 1.5rem;

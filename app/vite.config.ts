@@ -29,5 +29,11 @@ export default defineConfig(async () => ({
       // 3. tell Vite to ignore watching `src-tauri`
       ignored: ["**/src-tauri/**"],
     },
+    // Allow importing the canonical legal docs from the repo root (../docs/legal)
+    // as ?raw strings: one source of truth shared with the website (see
+    // src/features/legal/legalContent.ts and docs/compliance-documents.md §2).
+    fs: {
+      allow: [".."],
+    },
   },
 }));

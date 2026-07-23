@@ -7,8 +7,11 @@ import Session from './pages/Session';
 import Settings from './pages/Settings';
 import About from './pages/About';
 import Search from './pages/Search';
+import Legal from './pages/Legal';
 import SetupWizard from './features/setup/SetupWizard';
 import { useSetupCheck, clearSetupRerun } from './features/setup/useSetupCheck';
+import FirstRunEula from './features/legal/FirstRunEula';
+import { useEulaAcceptance } from './features/legal/eulaAcceptance';
 
 function AppRouter() {
     return (
@@ -20,6 +23,7 @@ function AppRouter() {
                     <Route path="search" element={<Search />} />
                     <Route path="settings" element={<Settings />} />
                     <Route path="about" element={<About />} />
+                    <Route path="legal/:doc" element={<Legal />} />
                 </Route>
             </Routes>
         </HashRouter>
@@ -27,7 +31,16 @@ function AppRouter() {
 }
 
 export default function App() {
+    // The EULA gate is checked first and synchronously: the user must accept before
+    // the setup wizard downloads and runs any third-party binaries -- before
+    // reaching the app at all. Re-shown only if they've never accepted the current
+    // EULA version (see eulaAcceptance.ts).
+    const { accepted, accept } = useEulaAcceptance();
     const { isComplete, isLoading } = useSetupCheck();
+
+    if (!accepted) {
+        return <FirstRunEula onAccept={accept} />;
+    }
 
     if (isLoading) {
         return (

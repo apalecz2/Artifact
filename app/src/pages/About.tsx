@@ -1,5 +1,7 @@
 import React from 'react';
+import { Link } from 'react-router';
 import Icon from '../components/Icon';
+import { openUrl } from '@tauri-apps/plugin-opener';
 
 function FeatureCard({ icon, title, body }: { icon: string; title: string; body: string }) {
     return (
@@ -240,6 +242,49 @@ export default function About(): React.ReactElement {
                     </div>
                     <p className="font-body-md text-body-md text-on-surface-variant">
                         The AI model and platform binaries (~3.5 GB) are downloaded once on first launch and SHA-256 verified.
+                    </p>
+                </section>
+
+                {/* ── AI-output notice ── */}
+                <section className="rounded-[10px] border border-outline-variant bg-surface-container p-6 flex gap-4">
+                    <Icon name="auto_awesome" size={20} weight={300} className="text-primary shrink-0 mt-0.5" />
+                    <p className="font-body-md text-body-md text-on-surface-variant">
+                        Anchor extracts tables using a local generative-AI model. AI output can be inaccurate or
+                        incomplete — always verify extracted data against the source document before relying on it.
+                        The confidence heatmap and click-to-source highlighting are aids to that review, not a
+                        guarantee of accuracy.
+                    </p>
+                </section>
+
+                {/* ── Legal ── */}
+                <section className="flex flex-col gap-6 pb-4">
+                    <h2 className="font-headline-lg text-headline-lg text-on-surface">Legal</h2>
+                    <div className="rounded-[10px] border border-outline-variant bg-surface-container divide-y divide-outline-variant">
+                        {[
+                            { to: '/legal/privacy', icon: 'shield', label: 'Privacy Policy', note: 'What Anchor processes and where (everything stays on your device).' },
+                            { to: '/legal/terms', icon: 'gavel', label: 'Terms of Use & EULA', note: 'License to use, AI-output disclaimer, and warranty terms.' },
+                            { to: '/legal/notices', icon: 'balance', label: 'Licenses & Notices', note: 'Open-source components and the AI model Anchor is built with.' },
+                        ].map(({ to, icon, label, note }) => (
+                            <Link key={to} to={to} className="flex items-center gap-4 px-5 py-4 hover:bg-surface-container-high transition-colors no-underline">
+                                <Icon name={icon} size={20} weight={300} className="text-primary shrink-0" />
+                                <div className="flex-1 min-w-0">
+                                    <p className="font-body-md text-body-md text-on-surface font-medium">{label}</p>
+                                    <p className="font-body-sm text-body-sm text-on-surface-variant">{note}</p>
+                                </div>
+                                <Icon name="chevron_right" size={20} className="text-on-surface-variant shrink-0" />
+                            </Link>
+                        ))}
+                    </div>
+                    <p className="font-body-sm text-body-sm text-on-surface-variant">
+                        Anchor · Copyright © 2026 Aiden Paleczny · Licensed under the Elastic License 2.0.
+                        Security, copyright, or AI-output concerns:{' '}
+                        <a
+                            href="mailto:aiden.paleczny@gmail.com"
+                            onClick={(e) => { e.preventDefault(); void openUrl('mailto:aiden.paleczny@gmail.com'); }}
+                            className="text-primary underline underline-offset-2 cursor-pointer"
+                        >
+                            aiden.paleczny@gmail.com
+                        </a>.
                     </p>
                 </section>
 

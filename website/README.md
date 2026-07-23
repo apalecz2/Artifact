@@ -33,6 +33,20 @@ npm run preview  # serve the production build locally
 `dist/` is plain static HTML/CSS/JS — host it anywhere (GitHub Pages, Cloudflare
 Pages, Netlify, R2 + a CDN, etc.).
 
+### Legal URLs
+
+The legal pages live at clean paths — `/privacy`, `/terms`, `/licenses`: which the
+Microsoft Store listing and the desktop app link to. Rather than relying on host-specific
+redirect/rewrite rules (which differ per host and fail silently where they're missing),
+the build emits each route as a real static file: `dist/privacy/index.html`,
+`dist/terms/index.html`, `dist/licenses/index.html` (each a copy of the built
+`index.html`, via the `prerender-legal-routes` plugin in
+[`vite.config.ts`](vite.config.ts)).
+
+Because those paths are actual files, every static host serves them with a proper `200`
+on a direct visit or refresh: GitHub Pages, Cloudflare Pages, Netlify, Vercel, Azure
+Static Web Apps, nginx/Apache, etc., with nothing to configure. Just upload `dist/`.
+
 ## Before publishing
 
 Edit the `LINKS` constant at the top of [`src/App.tsx`](src/App.tsx):

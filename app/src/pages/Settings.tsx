@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router';
 import { readSetting, writeSetting, type Theme } from '../lib/settings';
+import { eulaAcceptedAt } from '../features/legal/eulaAcceptance';
 import { useTheme } from '../hooks/useTheme';
 import { requestSetupRerun } from '../features/setup/useSetupCheck';
 import { deleteAllSessions } from '../features/sessions/sessionActions';
@@ -100,6 +102,7 @@ export default function Settings(): React.ReactElement {
     const [pathsSaved, setPathsSaved] = useState(false);
 
     const [appVersion, setAppVersion] = useState<string | null>(null);
+    const acceptedAt = eulaAcceptedAt();
 
     useEffect(() => {
         import('@tauri-apps/api/app').then(({ getVersion }) => getVersion()).then(setAppVersion).catch(() => {});
@@ -289,6 +292,35 @@ export default function Settings(): React.ReactElement {
                             </div>
                         </SettingRow>
                     </div>
+                </Section>
+
+                {/* ── Legal ── */}
+                <Section
+                    title="Legal"
+                    description="Anchor's terms, privacy policy, and the licenses of the components it's built with."
+                >
+                    <div className="rounded-[10px] border border-outline-variant bg-surface-container divide-y divide-outline-variant">
+                        {[
+                            { to: '/legal/privacy', icon: 'shield', label: 'Privacy Policy' },
+                            { to: '/legal/terms', icon: 'gavel', label: 'Terms of Use & EULA' },
+                            { to: '/legal/notices', icon: 'balance', label: 'Licenses & Notices' },
+                        ].map(({ to, icon, label }) => (
+                            <Link
+                                key={to}
+                                to={to}
+                                className="flex items-center gap-3 px-5 py-4 hover:bg-surface-container-high transition-colors no-underline"
+                            >
+                                <Icon name={icon} size={18} className="text-primary shrink-0" />
+                                <span className="flex-1 font-body-md text-body-md text-on-surface font-medium">{label}</span>
+                                <Icon name="chevron_right" size={20} className="text-on-surface-variant shrink-0" />
+                            </Link>
+                        ))}
+                    </div>
+                    {acceptedAt && (
+                        <p className="font-body-sm text-body-sm text-on-surface-variant px-1">
+                            You accepted the current Terms &amp; Privacy Policy on {new Date(acceptedAt).toLocaleDateString()}.
+                        </p>
+                    )}
                 </Section>
 
                 {appVersion && (

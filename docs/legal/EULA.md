@@ -1,6 +1,6 @@
 # Anchor — End User License Agreement & Terms of Use
 
-**Effective date / last updated: July 20, 2026**
+**Effective date / last updated: July 23, 2026**
 
 This End User License Agreement ("**Agreement**") is between you and **Aiden Paleczny**
 ("**Licensor**", "we") and governs your use of the **Anchor** desktop application,

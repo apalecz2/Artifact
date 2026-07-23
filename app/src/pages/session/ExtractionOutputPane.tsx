@@ -506,6 +506,10 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
                                 }
                                 subheader={
                                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-on-surface-variant">
+                                        <span className="flex w-full items-center gap-1.5 text-on-surface-variant">
+                                            <Icon name="auto_awesome" size={13} className="shrink-0 text-primary" />
+                                            AI-generated: verify against the source before relying on it.
+                                        </span>
                                         <span className="flex items-center gap-1">
                                             <span className="inline-block h-3 w-3 rounded-sm bg-green-200 border border-green-400"></span>
                                             High confidence

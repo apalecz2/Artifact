@@ -1,15 +1,11 @@
 # Anchor Privacy Policy
 
-**Effective date / last updated: July 13, 2026**
+**Effective date / last updated: July 23, 2026**
 
 This Privacy Policy describes how **Anchor** (the desktop application for Windows and
 macOS, the "App"), its marketing website, and its download service handle information.
 Anchor is developed and published by **Aiden Paleczny** ("we", "us"). Contact:
 **aiden.paleczny@gmail.com**.
-
-The short version: **Anchor processes your documents entirely on your device. Your
-documents, and anything extracted from them, never leave your computer. We operate no
-accounts, no analytics, no advertising, and no telemetry.**
 
 ## 1. Information the App processes — locally only
 

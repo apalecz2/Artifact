@@ -769,7 +769,7 @@ export default function App(): React.ReactElement {
                                 detail="Windows 10 / 11 · 64-bit"
                                 href={LINKS.releases}
                                 cta="Download installer"
-                                note="Signed installer via GitHub Releases."
+                                note="Installer via GitHub Releases (Unsigned for now)."
                             />
                             <DownloadCard
                                 icon="storefront"
@@ -811,15 +811,32 @@ export default function App(): React.ReactElement {
 
                 {/* ── Footer ── */}
                 <footer className="border-t border-outline-variant bg-surface">
-                    <div className="max-w-6xl mx-auto px-5 sm:px-8 lg:px-[--spacing-margin-page] py-10 flex flex-col sm:flex-row items-center justify-between gap-4">
-                        <div className="flex items-center gap-2 text-on-surface-variant">
-                            <AnchorMark className="w-6 h-6 rounded-md" />
-                            <span className="font-body-md text-body-md">Anchor · Local AI Data Extraction</span>
+                    <div className="max-w-6xl mx-auto px-5 sm:px-8 lg:px-[--spacing-margin-page] py-10 flex flex-col gap-6">
+                        <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                            <div className="flex items-center gap-2 text-on-surface-variant">
+                                <AnchorMark className="w-6 h-6 rounded-md" />
+                                <span className="font-body-md text-body-md">Anchor · Local AI Data Extraction</span>
+                            </div>
+                            <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 font-label-md text-label-md text-on-surface-variant">
+                                <a href={LINKS.github} target="_blank" rel="noreferrer" className="hover:text-on-surface transition-colors no-underline">GitHub</a>
+                                <a href={LINKS.releases} target="_blank" rel="noreferrer" className="hover:text-on-surface transition-colors no-underline">Releases</a>
+                                <a href="#download" className="hover:text-on-surface transition-colors no-underline">Download</a>
+                                <a href="/privacy" className="hover:text-on-surface transition-colors no-underline">Privacy</a>
+                                <a href="/terms" className="hover:text-on-surface transition-colors no-underline">Terms</a>
+                                <a href="/licenses" className="hover:text-on-surface transition-colors no-underline">Licenses</a>
+                            </div>
                         </div>
-                        <div className="flex items-center gap-5 font-label-md text-label-md text-on-surface-variant">
-                            <a href={LINKS.github} target="_blank" rel="noreferrer" className="hover:text-on-surface transition-colors no-underline">GitHub</a>
-                            <a href={LINKS.releases} target="_blank" rel="noreferrer" className="hover:text-on-surface transition-colors no-underline">Releases</a>
-                            <a href="#download" className="hover:text-on-surface transition-colors no-underline">Download</a>
+                        <div className="border-t border-outline-variant pt-6 flex flex-col gap-3 text-center sm:text-left font-body-sm text-body-sm text-on-surface-variant">
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+                                <span>© 2026 Aiden Paleczny · Licensed under the Elastic License 2.0.</span>
+                                <span className="text-on-surface-variant">
+                                    Copyright or security concerns:{' '}
+                                    <a href="mailto:aiden.paleczny@gmail.com" className="text-primary underline underline-offset-2 wrap-break-word">aiden.paleczny@gmail.com</a>
+                                </span>
+                            </div>
+                            <p className="max-w-2xl mx-auto sm:mx-0">
+                                Anchor uses a local generative-AI model; verify AI output before relying on it.
+                            </p>
                         </div>
                     </div>
                 </footer>
