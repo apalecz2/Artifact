@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import { invoke, convertFileSrc } from '@tauri-apps/api/core';
+import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { readFile } from '@tauri-apps/plugin-fs';
 import { getDb } from '../../lib/db';
 import { ExtractionResult, DocumentPageResult } from './types';
 import type { BoundingBox } from '../ocr/types';
@@ -232,9 +233,38 @@ export function useDocumentExtraction(sessionId: string | undefined, activePageI
         await updateDb(updatedPage);
     };
 
-    const fileUrl = extractionResult?.pages[activePageIndex]?.image_path
-        ? convertFileSrc(extractionResult.pages[activePageIndex].image_path)
-        : null;
+    // Load the active page image as a same-origin blob URL rather than handing
+    // the viewer a convertFileSrc `asset://` URL. On macOS the asset protocol is
+    // a WKWebView custom scheme, and the viewer's <img> needs to sample pixels on
+    // a canvas — which requires `crossOrigin`, and a crossOrigin request against
+    // the custom scheme fails CORS in WKWebView, so the image never paints.
+    // Reading the bytes ourselves sidesteps the protocol entirely and keeps the
+    // canvas same-origin on every platform.
+    const imagePath = extractionResult?.pages[activePageIndex]?.image_path ?? null;
+    const [fileUrl, setFileUrl] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (!imagePath) {
+            setFileUrl(null);
+            return;
+        }
+        let objectUrl: string | null = null;
+        let cancelled = false;
+        (async () => {
+            try {
+                const bytes = await readFile(imagePath);
+                if (cancelled) return;
+                objectUrl = URL.createObjectURL(new Blob([bytes], { type: 'image/png' }));
+                setFileUrl(objectUrl);
+            } catch {
+                if (!cancelled) setFileUrl(null);
+            }
+        })();
+        return () => {
+            cancelled = true;
+            if (objectUrl) URL.revokeObjectURL(objectUrl);
+        };
+    }, [imagePath]);
 
     return { extractionResult, fileUrl, isLoading, error, cancelled, progress, retry, cancel, addWord, editWord, deleteWord, rawTextSaved };
 }

@@ -10,6 +10,16 @@ vi.mock('@tauri-apps/api/core', () => ({
     convertFileSrc: (p: string) => convertFileSrc(p),
 }));
 
+// The hook now reads the page image itself and hands the viewer a blob URL.
+vi.mock('@tauri-apps/plugin-fs', () => ({
+    readFile: vi.fn(async () => new Uint8Array([0x89, 0x50, 0x4e, 0x47])),
+}));
+// jsdom doesn't implement object URLs; stub them so the blob path is exercisable.
+if (!('createObjectURL' in URL)) {
+    (URL as unknown as { createObjectURL: unknown }).createObjectURL = () => 'blob:mock';
+    (URL as unknown as { revokeObjectURL: unknown }).revokeObjectURL = () => {};
+}
+
 // listen captures the registered handler so a test can emit progress events.
 let progressHandler: ((e: { payload: unknown }) => void) | null = null;
 const unlisten = vi.fn();
