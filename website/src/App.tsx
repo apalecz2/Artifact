@@ -507,6 +507,20 @@ export default function App(): React.ReactElement {
             <div className="relative z-10">
                 <Header />
 
+                {/* ── Beta notice ── */}
+                {/* Glassy like the header (backdrop-blur) so the ambient/cursor
+                    grid effect reads softly *under* the strip instead of bleeding
+                    through it — keeps the top chrome visually continuous. */}
+                <div className="border-b border-primary/20 bg-primary/10 backdrop-blur-md">
+                    <div className="max-w-6xl mx-auto px-5 sm:px-8 lg:px-[--spacing-margin-page] py-2.5 flex items-center justify-center gap-2.5 text-center">
+                        <Icon name="construction" size={18} weight={300} className="text-primary shrink-0" />
+                        <p className="font-body-sm text-body-sm text-on-surface-variant">
+                            <span className="text-on-surface font-medium">Anchor is in beta.</span>{' '}
+                            Its features and the data below are still evolving and subject to change.
+                        </p>
+                    </div>
+                </div>
+
                 <main className="max-w-6xl mx-auto px-5 sm:px-8 lg:px-[--spacing-margin-page]">
 
                     {/* ── Hero ── */}
