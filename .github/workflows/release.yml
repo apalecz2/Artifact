@@ -1,6 +1,6 @@
 name: release
 
-# Builds the Windows installers and publishes them to a GitHub Release.
+# Builds the Windows + macOS installers and publishes them to a GitHub Release.
 # Trigger: push a version tag (e.g. `git tag v0.1.0 && git push origin v0.1.0`),
 # or run manually from the Actions tab. The release is created as a DRAFT so you
 # review the artifacts and notes before making it public.
@@ -21,8 +21,20 @@ permissions:
 
 jobs:
   release:
-    name: Build & publish (Windows)
-    runs-on: windows-latest
+    name: Build & publish (${{ matrix.name }})
+    runs-on: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS (universal)
+            platform: macos-latest
+            targets: aarch64-apple-darwin,x86_64-apple-darwin
+            args: --target universal-apple-darwin
+          - name: Windows
+            platform: windows-latest
+            targets: ''
+            args: ''
     steps:
       - uses: actions/checkout@v5
 
@@ -33,10 +45,13 @@ jobs:
           cache-dependency-path: app/package-lock.json
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.targets }}
 
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: app/src-tauri
+          key: ${{ matrix.platform }}
 
       - name: Install frontend deps
         working-directory: app
@@ -48,6 +63,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: app
+          args: ${{ matrix.args }}
           tagName: ${{ github.ref_name }}
           releaseName: 'Anchor ${{ github.ref_name }}'
           releaseBody: |
