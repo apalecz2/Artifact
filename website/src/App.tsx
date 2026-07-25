@@ -21,6 +21,10 @@ const LINKS = {
     macDownload: 'https://github.com/apalecz2/anchor/releases/latest',
 };
 
+/** Footer copyright start year. Update only if this ever needs to reflect an
+ *  earlier true founding date; the current year is computed at render time. */
+const FOUNDED_YEAR = 2026;
+
 const NAV = [
     { href: '#features', label: 'Features' },
     { href: '#how', label: 'How it works' },
@@ -397,7 +401,7 @@ function StepRow({ number, title, body }: { number: string; title: string; body:
                 <span className="font-label-md text-label-md text-on-primary font-semibold">{number}</span>
             </div>
             <div>
-                <p className="font-body-lg text-body-lg text-on-surface font-medium">{title}</p>
+                <h3 className="font-body-lg text-body-lg text-on-surface font-medium">{title}</h3>
                 <p className="font-body-md text-body-md text-on-surface-variant mt-0.5">{body}</p>
             </div>
         </div>
@@ -440,7 +444,7 @@ function PipelineStep({ number, title, body }: { number: string; title: string; 
                     <span className="font-label-md text-label-md text-on-primary font-semibold">{number}</span>
                 </div>
                 <div className="flex-1 flex items-center justify-between gap-3 mt-0.5">
-                    <p className="font-body-lg text-body-lg text-on-surface font-medium">{title}</p>
+                    <h3 className="font-body-lg text-body-lg text-on-surface font-medium">{title}</h3>
                     <Icon
                         name="expand_more"
                         size={20}
@@ -687,7 +691,7 @@ export default function App(): React.ReactElement {
                         <Icon name="construction" size={18} weight={300} className="text-primary shrink-0" />
                         <p className="font-body-sm text-body-sm text-on-surface-variant">
                             <span className="text-on-surface font-medium">Anchor is in beta.</span>{' '}
-                            Its features and the data below are still evolving and subject to change.
+                            Features may still change.
                         </p>
                     </div>
                 </div>
@@ -707,9 +711,8 @@ export default function App(): React.ReactElement {
                             </h1>
                             <p className="font-body-lg text-body-lg text-on-surface-variant max-w-xl">
                                 Anchor pulls the tables out of your PDFs and photos (transcripts, invoices, statements,
-                                lab results, spreadsheets locked inside a scan) and turns them into clean rows and columns
-                                you can open in Excel or Google Sheets. Everything happens on your own computer. Nothing is ever uploaded,
-                                so your sensitive records stay yours alone.
+                                lab results) and turns them into rows and columns you can open in Excel or Google Sheets.
+                                Nothing is uploaded, so sensitive records stay on your machine.
                             </p>
                             <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-3 pt-2">
                                 <a
@@ -730,7 +733,7 @@ export default function App(): React.ReactElement {
                                 </a>
                             </div>
                             <p className="font-body-sm text-body-sm text-on-surface-variant">
-                                Free and open source. Pre-release builds available now for Windows and macOS.
+                                Free and source-available. Pre-release builds available now for Windows and macOS.
                             </p>
                         </div>
                         <div className="lg:pl-4">
@@ -763,7 +766,7 @@ export default function App(): React.ReactElement {
                     <section className="flex flex-col gap-8 pb-16 sm:pb-24">
                         <SectionHeading
                             title="The tables you need are stuck in your documents"
-                            body="The data you actually want is usually a table, trapped inside a scanned PDF, a photo of a page, or a printout that was never a spreadsheet. Getting it into rows and columns today means one of two bad options: paste it into a cloud tool that ships your private records off to someone else's servers, or retype the whole thing by hand, where one character error (a missing zero, a decimal point in the wrong place) could silently turn a million-dollar figure into a thousand-dollar one, or a dollar amount into pennies."
+                            body="The data you actually want is usually a table, trapped inside a scanned PDF, a photo of a page, or a printout that was never a spreadsheet. Retyped by hand, one slipped keystroke (a missing zero, a decimal point in the wrong place) can turn a million-dollar figure into a thousand-dollar one, or a dollar amount into pennies."
                         />
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                             {[
@@ -786,7 +789,7 @@ export default function App(): React.ReactElement {
                             <FeatureCard
                                 icon="table_chart"
                                 title="Tables become spreadsheets"
-                                body="Anchor focuses on one job and does it well: reading the tables in your documents and turning them into clean rows and columns. Export straight to Excel or CSV, plus Markdown, HTML, or plain text, and keep working."
+                                body="Anchor reads the tables in your documents and turns them into rows and columns. Export straight to Excel or CSV, plus Markdown, HTML, or plain text."
                             />
                             <FeatureCard
                                 icon="lock"
@@ -811,13 +814,13 @@ export default function App(): React.ReactElement {
                         <SectionHeading
                             overline="How it works"
                             title="Four steps, start to finish"
-                            body="No setup, no settings to learn. Drop a file in and you'll have a spreadsheet a moment later."
+                            body="No setup. Drop a file in and you'll have a spreadsheet a moment later."
                         />
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-12 gap-y-6">
                             <StepRow number="1" title="Drop in your file" body="Add a PDF or a photo of the page: a transcript, an invoice, a statement, anything with a table on it." />
-                            <StepRow number="2" title="Anchor reads the table" body="On-device AI reads the page and lays the data out into clean rows and columns. This all happens on your computer." />
-                            <StepRow number="3" title="Glance and verify" body="Cells are color-coded by confidence. Click one to see exactly where it came from on the original page, and fix anything flagged." />
-                            <StepRow number="4" title="Export your table" body="Save the finished table as Excel, CSV, Markdown, HTML, or plain text and carry on with your work." />
+                            <StepRow number="2" title="Anchor reads the table" body="On-device AI reads the page and lays the data out into rows and columns." />
+                            <StepRow number="3" title="Glance and verify" body="Click any flagged cell to jump straight to its source on the page and fix it in seconds." />
+                            <StepRow number="4" title="Export your table" body="Save the finished table as Excel, CSV, Markdown, HTML, or plain text." />
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                             <div>
@@ -851,7 +854,7 @@ export default function App(): React.ReactElement {
                             <p className="font-body-lg text-body-lg text-on-surface-variant max-w-2xl">
                                 Everything above happens through a fully on-device pipeline: OCR, a local vision-language
                                 model, deterministic provenance matching, and per-cell confidence scoring. Here's how the
-                                internals actually work, and the stack they run on.
+                                internals work, and the stack they run on.
                             </p>
                         </div>
                     </section>
@@ -865,48 +868,31 @@ export default function App(): React.ReactElement {
                         />
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-12 gap-y-3">
                             <PipelineStep number="1" title="Ingest & validate" body="Drop a PDF, PNG, or JPEG. Anchor validates the format and checks whether the document contains extractable content." />
-                            <PipelineStep number="2" title="OCR" body="Files are rendered to high-resolution images (PDFs rendered withPDFium) and passed through Tesseract for word-level text and bounding boxes." />
+                            <PipelineStep number="2" title="OCR" body="Files are rendered to high-resolution images (PDFs rendered with PDFium) and passed through Tesseract for word-level text and bounding boxes." />
                             <PipelineStep number="3" title="OCR image preprocessing" body="A separate copy is prepared just for Tesseract: grayscaled and, for small uploads, upscaled with Lanczos resampling. The original image is untouched, so click-to-highlight boxes always land on the right spot." />
                             <PipelineStep number="4" title="Context assembly" body="OCR words are sanitized and sorted into reading order. Two views are built from the same word array: spatially-aligned text for the AI, and an indexed word list with bounding boxes for provenance." />
-                            <PipelineStep number="5" title="AI extraction" body="The local vision-language model reads the image alongside the spatial OCR text and emits a clean table with greedy decoding. Token log-probabilities are captured during streaming." />
-                            <PipelineStep number="6" title="Grid matching" body="Anchor detects the table's column and row layout from the OCR word positions, then links each cell to its source word within that exact row and column. Duplicate values are placed correctly by position instead of guesswork." />
+                            <PipelineStep number="5" title="AI extraction" body="The local vision-language model reads the image alongside the spatial OCR text and emits a table with greedy decoding. Token log-probabilities are captured during streaming." />
+                            <PipelineStep number="6" title="Grid matching" body="Anchor detects the table's column and row layout from the OCR word positions, then links each cell to its source word within that exact row and column, with no extra model tokens or added latency. Duplicate values are placed correctly by position instead of guesswork." />
                             <PipelineStep number="7" title="Fallback matching" body="Any cell the grid pass couldn't place is recovered with a reading-order walk, fuzzy text matching, and spatial checks. A final pass compares blank cells against leftover OCR text so dropped content still gets flagged." />
-                            <PipelineStep number="8" title="Confidence scoring" body="Three signals per cell (AI log-probability as mean and minimum, OCR word confidence, and source agreement) blend into a trust level that drives the color heatmap." />
-                            <PipelineStep number="9" title="Human verification" body="The table color-codes every cell by trust. Click a cell to highlight its source region; cells with no OCR match get an unverified badge, and approximate matches a lowered-confidence badge." />
+                            <PipelineStep number="8" title="Confidence scoring" body="Three signals per cell (AI log-probability as mean and minimum, OCR word confidence, and source agreement) blend into a trust level that drives the color heatmap; a disagreement between the AI and OCR always pulls a cell down to low trust." />
+                            <PipelineStep number="9" title="Human verification" body="The table color-codes every cell by trust. Click a cell to highlight its source region; cells with no OCR match get an unverified badge, and approximate matches get a lowered-confidence badge." />
                             <PipelineStep number="10" title="Export" body="Save verified data as Excel, CSV, HTML, Markdown, or plain text. The model is unloaded from RAM once it's been idle to free resources." />
                         </div>
                     </section>
 
-                    {/* ── How confidence & provenance work (technical) ── */}
-                    <section className="flex flex-col gap-8 pb-16 sm:pb-24">
-                        <SectionHeading overline="Trust signals" title="How the heatmap is computed" />
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <FeatureCard
-                                icon="thermostat"
-                                title="Per-cell confidence scoring"
-                                body="Every extracted cell is color-coded green, yellow, or red based on three signals: AI token log-probability, Tesseract OCR word confidence, and whether the two sources agree. A disagreement between the AI and the OCR always pulls a cell down, and the minimum token probability is tracked separately to catch a single shaky digit hiding inside an otherwise confident number."
-                            />
-                            <FeatureCard
-                                icon="account_tree"
-                                title="Deterministic source matching"
-                                body="A grid-first spatial matcher links each extracted cell back to its source OCR words using column geometry and row alignment, with no extra model tokens and no latency. A reading-order walk covers untabular layouts, a fuzzy pass recovers OCR text that's close but not an exact match, and a final pass checks blank cells against leftover OCR text so dropped content never goes unnoticed."
-                            />
-                        </div>
-                    </section>
-
                     {/* ── Under the hood ── */}
-                    <section id="tech" className="scroll-mt-20 flex flex-col gap-8 pb-16 sm:pb-24">
+                    <section className="flex flex-col gap-8 pb-16 sm:pb-24">
                         <SectionHeading overline="Architecture" title="Under the hood" />
                         <div className="rounded-[10px] border border-outline-variant bg-surface-container divide-y divide-outline-variant">
                             {[
-                                { label: 'Interface', value: 'React + TypeScript', note: 'Type-safe, high-interactivity UI' },
+                                { label: 'Interface', value: 'React + TypeScript', note: 'Type-safe, interactive UI' },
                                 { label: 'Framework', value: 'Tauri', note: 'Lightweight native desktop shell with lower overhead than Electron' },
-                                { label: 'AI runtime', value: 'llama.cpp server', note: 'Model-agnostic inference; swap models without rebuilding' },
-                                { label: 'Vision model', value: 'Qwen3.5-4b (multimodal)', note: 'Handles vision tasks and OCR validation locally' },
+                                { label: 'AI runtime', value: 'llama.cpp server', note: 'Open-source inference engine; not tied to a proprietary API' },
+                                { label: 'Vision model', value: 'Qwen3.5-4b (multimodal)', note: 'Reads the document image directly to extract table values' },
                                 { label: 'OCR engine', value: 'Tesseract', note: 'Word-level bounding boxes and per-word confidence' },
-                                { label: 'Image preprocessing', value: 'image (Rust)', note: 'Grayscale + Lanczos upscaling before OCR, with no system OpenCV dependency' },
-                                { label: 'PDF rendering', value: 'PDFium', note: 'High-fidelity 2000px renders from native PDF pages' },
-                                { label: 'Storage', value: 'SQLite (local)', note: 'Session and file metadata stored entirely on-device' },
+                                { label: 'Image preprocessing', value: 'image crate (Rust)', note: 'Grayscale + Lanczos upscaling before OCR, with no system OpenCV dependency' },
+                                { label: 'PDF rendering', value: 'PDFium', note: '2000px renders from native PDF pages' },
+                                { label: 'Storage', value: 'SQLite', note: 'Session and file metadata stored entirely on-device' },
                             ].map(({ label, value, note }) => (
                                 <div key={label} className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-4 px-5 py-4">
                                     <p className="font-label-md text-label-md text-on-surface-variant sm:w-32 sm:shrink-0 sm:mt-0.5">{label}</p>
@@ -922,7 +908,7 @@ export default function App(): React.ReactElement {
 
                     {/* ── Hardware ── */}
                     <section className="flex flex-col gap-6 pb-16 sm:pb-24">
-                        <SectionHeading overline="Adaptive" title="Adapts to your hardware" />
+                        <SectionHeading overline="Hardware" title="Adapts to your hardware" />
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div className="rounded-[10px] border border-outline-variant bg-surface-container p-6 flex flex-col gap-3">
                                 <p className="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">GPU acceleration</p>
@@ -937,10 +923,10 @@ export default function App(): React.ReactElement {
                             </div>
                             <div className="rounded-[10px] border border-outline-variant bg-surface-container p-6 flex flex-col gap-3">
                                 <p className="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">CPU fallback</p>
-                                <h3 className="font-headline-md text-headline-md text-on-surface">Runs on any machine</h3>
+                                <h3 className="font-headline-md text-headline-md text-on-surface">No GPU needed</h3>
                                 <p className="font-body-md text-body-md text-on-surface-variant">
-                                    No GPU required. Anchor runs the full pipeline on your CPU, and a GPU build
-                                    automatically falls back to CPU if acceleration can't initialize.
+                                    Anchor runs the full pipeline on your CPU, and a GPU build automatically
+                                    falls back to CPU if acceleration can't initialize.
                                 </p>
                             </div>
                         </div>
@@ -1026,7 +1012,10 @@ export default function App(): React.ReactElement {
                         </div>
                         <div className="border-t border-outline-variant pt-6 flex flex-col gap-3 text-center sm:text-left font-body-sm text-body-sm text-on-surface-variant">
                             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
-                                <span>© 2026 Aiden Paleczny · Licensed under the Elastic License 2.0.</span>
+                                <span>
+                                    © {FOUNDED_YEAR === new Date().getFullYear() ? FOUNDED_YEAR : `${FOUNDED_YEAR}-${new Date().getFullYear()}`}{' '}
+                                    Aiden Paleczny · Licensed under the Elastic License 2.0.
+                                </span>
                                 <span className="text-on-surface-variant">
                                     Copyright or security concerns:{' '}
                                     <a href="mailto:aiden.paleczny@gmail.com" className="text-primary underline underline-offset-2 wrap-break-word">aiden.paleczny@gmail.com</a>
