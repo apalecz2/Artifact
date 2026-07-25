@@ -1,7 +1,7 @@
 # Test Plan — Anchor (DataExtractionAI)
 
 **Status:** authored 2026-06-17 · **Scope:** the shippable app (`app/` React frontend + `app/src-tauri/` Rust backend). Prototypes (`prototypes/`) are out of scope.
-**Supported platforms:** Windows + macOS (per [design.md §5](design.md)). Linux paths exist but are unsupported placeholders — they are smoke-checked for compilation only, not validated.
+**Supported platforms:** Windows 10 (22H2+)/11 and macOS on Apple Silicon (per [design.md §5](design.md); Intel Macs are not supported). Linux paths exist but are unsupported placeholders — they are smoke-checked for compilation only, not validated.
 
 This plan is the single source of truth for **what to test, how to implement it, and how to run it.** It is organized as a test pyramid (§3), then a **file-by-file coverage matrix** (§6) so nothing is missed, then cross-cutting suites (§7–§11) covering everything from a hard process crash down to an individual button press.
 

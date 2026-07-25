@@ -14,7 +14,10 @@ const LINKS = {
     releases: 'https://github.com/apalecz2/anchor/releases/latest',
     /** Microsoft Store listing, planned (release-strategy.md, Phase 3). Leave empty until live. */
     microsoftStore: '',
-    /** macOS DMG. Same GitHub Releases page as Windows; universal build, unsigned for now. */
+    /** macOS DMG. Same GitHub Releases page as Windows. The .app itself is a universal
+     *  build, but the AI runtime it downloads on first launch (llama-server, PDFium) is
+     *  Apple Silicon-only (see paths.rs::pdfium_spec / setup.rs::get_llama_server_spec) —
+     *  it does not actually run on Intel Macs. Unsigned for now. */
     macDownload: 'https://github.com/apalecz2/anchor/releases/latest',
 };
 
@@ -87,7 +90,7 @@ function Header(): React.ReactElement {
         <header className="sticky top-0 z-50 border-b border-outline-variant bg-surface/80 backdrop-blur-md">
             <div className="max-w-6xl mx-auto px-5 sm:px-8 lg:px-[--spacing-margin-page] h-16 flex items-center justify-between gap-4">
                 <Logo />
-                <nav className="hidden md:flex items-center gap-1">
+                <nav className="hidden lg:flex items-center gap-1">
                     {NAV.map(({ href, label }) => (
                         <a
                             key={href}
@@ -121,16 +124,18 @@ function Header(): React.ReactElement {
                         onClick={() => setMenuOpen((o) => !o)}
                         aria-label="Toggle navigation menu"
                         aria-expanded={menuOpen}
-                        className="md:hidden w-9 h-9 rounded-full border border-outline-variant bg-surface-container flex items-center justify-center text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors"
+                        className="lg:hidden w-9 h-9 rounded-full border border-outline-variant bg-surface-container flex items-center justify-center text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors"
                     >
                         <Icon name={menuOpen ? 'close' : 'menu'} size={20} weight={300} />
                     </button>
                 </div>
             </div>
 
-            {/* Mobile dropdown nav — replaces the desktop links below the md breakpoint. */}
+            {/* Mobile dropdown nav — replaces the desktop links below the lg breakpoint,
+                since the four labels start wrapping onto two lines before there's
+                enough room for them to sit comfortably on one row. */}
             {menuOpen && (
-                <nav className="md:hidden border-t border-outline-variant bg-surface px-5 py-3 flex flex-col gap-1">
+                <nav className="lg:hidden border-t border-outline-variant bg-surface px-5 py-3 flex flex-col gap-1">
                     {NAV.map(({ href, label }) => (
                         <a
                             key={href}
@@ -166,23 +171,59 @@ function Header(): React.ReactElement {
 
 /* ── Product preview mock (split-screen heatmap) ─────────────────────────── */
 
+type Trust = 'high' | 'medium' | 'low';
+interface PreviewCell {
+    value: string;
+    trust: Trust;
+    /** '≈' mirrors ProvenanceTable's fuzzy-match badge. */
+    badge?: '≈';
+}
+
+// Stand-in confidence percentages driving the hue math below — not shown to
+// the visitor, just picked so high/medium/low land clearly in each band.
+const TRUST_CONFIDENCE: Record<Trust, number> = { high: 96, medium: 74, low: 38 };
+
+// Exactly DocumentViewer's getConfidenceColor (app/src/components/DocumentViewer.tsx):
+// 0% confidence -> red, 100% -> green, same hue/saturation/lightness.
+const wordHue = (trust: Trust) => (TRUST_CONFIDENCE[trust] / 100) * 120;
+
+// Exactly ProvenanceTable's TRUST_BG / TRUST_TEXT (app/src/components/ProvenanceTable.tsx),
+// so the heatmap on this card uses the identical palette as the real output table.
+const CELL_BG: Record<Trust, string> = {
+    high: 'bg-green-100 dark:bg-green-500/15',
+    medium: 'bg-amber-100 dark:bg-amber-500/15',
+    low: 'bg-red-100 dark:bg-red-500/15',
+};
+const CELL_TEXT: Record<Trust, string> = {
+    high: 'text-green-900 dark:text-green-200',
+    medium: 'text-amber-900 dark:text-amber-200',
+    low: 'text-red-900 dark:text-red-200',
+};
+
+// A cell's OCR words don't all necessarily share the cell's overall trust — a
+// cell can combine a clean word with a misread one. "11O" (letter O, an OCR
+// misread of "110") is the one word actually responsible for the low-trust
+// cell it belongs to; every other word in these rows reads cleanly, matching
+// its cell's trust. This mirrors the real pipeline: confidence is scored per
+// word first, and a cell's trust reflects the shakiest word inside it.
+const WORD_TRUST_OVERRIDE: Record<string, Trust> = { HIST: 'high', '11O': 'low' };
+
+// Shared by both panes so the source document and the extracted table always
+// show identical column labels. Header cells carry their own OCR confidence
+// too, exactly like ProvenanceTable's headerClasses — a header is read off the
+// page the same as any other word, so it gets the same trust treatment.
+const COLUMNS: { label: string; trust: Trust }[] = [
+    { label: 'Code', trust: 'high' },
+    { label: 'Course', trust: 'high' },
+    { label: 'Cr', trust: 'medium' },
+];
+
 function ProductPreview(): React.ReactElement {
-    const trust: Record<string, string> = {
-        high: 'text-trust-high',
-        medium: 'text-trust-medium',
-        low: 'text-trust-low',
-    };
-    const dot: Record<string, string> = {
-        high: 'bg-trust-high',
-        medium: 'bg-trust-medium',
-        low: 'bg-trust-low',
-    };
-    // [value, trustLevel]
-    const rows: [string, keyof typeof trust][][] = [
-        [['CHEM 101', 'high'], ['Intro Chemistry', 'high'], ['3.0', 'high']],
-        [['MATH 204', 'high'], ['Linear Algebra', 'medium'], ['4.0', 'high']],
-        [['HIST 11O', 'low'], ['World History', 'high'], ['3.0', 'medium']],
-        [['BIOL 150', 'high'], ['Cell Biology', 'high'], ['4.0', 'high']],
+    const rows: PreviewCell[][] = [
+        [{ value: 'CHEM 101', trust: 'high' }, { value: 'Intro Chemistry', trust: 'high' }, { value: '3.0', trust: 'high' }],
+        [{ value: 'MATH 204', trust: 'high' }, { value: 'Linear Algebra', trust: 'medium' }, { value: '4.0', trust: 'high' }],
+        [{ value: 'HIST 11O', trust: 'low', badge: '≈' }, { value: 'World History', trust: 'high' }, { value: '3.0', trust: 'medium' }],
+        [{ value: 'BIOL 150', trust: 'high' }, { value: 'Cell Biology', trust: 'high' }, { value: '4.0', trust: 'high' }],
     ];
 
     return (
@@ -192,45 +233,125 @@ function ProductPreview(): React.ReactElement {
                 <span className="w-3 h-3 rounded-full bg-outline-variant" />
                 <span className="w-3 h-3 rounded-full bg-outline-variant" />
                 <span className="w-3 h-3 rounded-full bg-outline-variant" />
-                <span className="ml-3 font-body-sm text-body-sm text-on-surface-variant">transcript.pdf · Anchor</span>
+                <span className="ml-3 font-body-sm text-body-sm text-on-surface-variant">Anchor</span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-outline-variant">
-                {/* Source document pane */}
-                <div className="p-5 bg-surface-bright">
+                {/* Source document pane: mirrors DocumentViewer + SourceDocumentPane —
+                    a page image with a translucent, colored box drawn over every OCR
+                    word (color by confidence), plus the floating draw/pan/zoom pill
+                    docked at the bottom of the pane. */}
+                <div className="relative p-5 pb-14 bg-surface-bright">
                     <p className="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-3">Source</p>
-                    <div className="space-y-2.5">
-                        <div className="h-3 w-2/3 rounded bg-surface-dim" />
-                        <div className="h-2.5 w-1/2 rounded bg-surface-variant" />
-                        <div className="mt-4 space-y-2 font-mono-data text-mono-data text-on-surface-variant">
-                            <div className="flex justify-between"><span>CHEM 101</span><span>Intro Chemistry</span><span>3.0</span></div>
-                            <div className="flex justify-between"><span>MATH 204</span><span>Linear Algebra</span><span>4.0</span></div>
-                            <div className="flex justify-between">
-                                <span className="rounded bg-trust-low/20 px-1 ring-1 ring-trust-low/40">HIST 11O</span>
-                                <span>World History</span><span>3.0</span>
-                            </div>
-                            <div className="flex justify-between"><span>BIOL 150</span><span>Cell Biology</span><span>4.0</span></div>
+                    {/* Stands in for the page image itself — DocumentViewer renders the
+                        actual document in a shadowed rectangle sitting on the pane
+                        background (app/src/components/DocumentViewer.tsx); the word boxes
+                        below are the OCR overlay layered on top of it. */}
+                    <div className="rounded-sm bg-surface-container-lowest p-3 shadow-sm shadow-black/10">
+                        {/* Same column labels as the extracted table below, so the two
+                            panes visibly describe the same document — headers are OCR
+                            words too, so they get the same confidence box as any other. */}
+                        <div className="grid grid-cols-[1fr_1.4fr_0.5fr] gap-x-2 border-b border-outline-variant pb-2 font-mono-data text-[11px] font-semibold leading-tight">
+                            {COLUMNS.map(({ label, trust }) => {
+                                const hue = wordHue(trust);
+                                return (
+                                    <span
+                                        key={label}
+                                        className="inline-block w-fit rounded-xs px-1 leading-snug text-on-surface"
+                                        style={{
+                                            backgroundColor: `hsla(${hue}, 80%, 45%, 0.3)`,
+                                            boxShadow: `inset 0 0 0 1px hsl(${hue}, 80%, 45%)`,
+                                        }}
+                                    >
+                                        {label}
+                                    </span>
+                                );
+                            })}
+                        </div>
+                        <div className="mt-3 grid grid-cols-[1fr_1.4fr_0.5fr] gap-x-2 gap-y-2 font-mono-data text-[11px] leading-tight">
+                            {rows.map((cells, ri) => (
+                                <React.Fragment key={ri}>
+                                    {cells.map((cell, ci) => (
+                                        <div key={ci} className="flex flex-wrap items-start gap-1">
+                                            {cell.value.split(' ').map((word, wi) => {
+                                                const hue = wordHue(WORD_TRUST_OVERRIDE[word] ?? cell.trust);
+                                                return (
+                                                    <span
+                                                        key={wi}
+                                                        className="inline-block rounded-xs px-1 leading-snug text-on-surface"
+                                                        style={{
+                                                            backgroundColor: `hsla(${hue}, 80%, 45%, 0.3)`,
+                                                            boxShadow: `inset 0 0 0 1px hsl(${hue}, 80%, 45%)`,
+                                                        }}
+                                                    >
+                                                        {word}
+                                                    </span>
+                                                );
+                                            })}
+                                        </div>
+                                    ))}
+                                </React.Fragment>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Floating tool pill — decorative stand-in for the real bottom-docked
+                        draw/pan/overlay/zoom toolbar in SourceDocumentPane. */}
+                    <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
+                        <div className="flex items-center gap-1.5 rounded-full border border-outline-variant bg-surface/95 backdrop-blur-sm shadow-lg px-2 py-1">
+                            <Icon name="draw" size={13} weight={300} className="text-primary" />
+                            <Icon name="pan_tool" size={13} weight={300} className="text-on-surface-variant" />
+                            <span className="mx-0.5 h-3 w-px bg-outline-variant" />
+                            <Icon name="zoom_in" size={13} weight={300} className="text-on-surface-variant" />
+                            <span className="font-body-sm text-[10px] tabular-nums text-on-surface-variant">100%</span>
                         </div>
                     </div>
                 </div>
 
-                {/* Extracted table pane */}
+                {/* Extracted table pane: mirrors ProvenanceTable — bordered grid cells
+                    with a full pastel background tint by trust level (not just a
+                    colored marker) and the same fuzzy-match badge glyph. */}
                 <div className="p-5">
                     <p className="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-3">Extracted · confidence heatmap</p>
-                    <div className="font-mono-data text-mono-data">
-                        <div className="grid grid-cols-[1fr_1.4fr_0.5fr] gap-x-2 pb-2 mb-1 border-b border-outline-variant text-on-surface-variant">
-                            <span>Code</span><span>Course</span><span>Cr</span>
-                        </div>
-                        {rows.map((cells, i) => (
-                            <div key={i} className="grid grid-cols-[1fr_1.4fr_0.5fr] gap-x-2 py-1 items-center">
-                                {cells.map(([value, level], j) => (
-                                    <span key={j} className={`flex items-center gap-1 ${trust[level]}`}>
-                                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dot[level]}`} />
-                                        <span className="truncate">{value}</span>
-                                    </span>
+                    {/* overflow-x-auto + browser auto table layout mirrors ProvenanceTable
+                        exactly: columns size to their content instead of a forced split,
+                        so short/long values both stay on one line and legible. */}
+                    <div className="overflow-x-auto">
+                        <table className="w-full border-collapse font-mono-data text-[11px] leading-tight">
+                            <thead>
+                                <tr>
+                                    {COLUMNS.map(({ label, trust }) => (
+                                        <th
+                                            key={label}
+                                            className={`whitespace-nowrap border border-outline-variant border-b-2 border-b-on-surface/30 px-1 py-1.5 text-left font-semibold ${CELL_BG[trust]} ${CELL_TEXT[trust]}`}
+                                        >
+                                            {label}
+                                        </th>
+                                    ))}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {rows.map((cells, ri) => (
+                                    <tr key={ri}>
+                                        {cells.map((cell, ci) => (
+                                            <td
+                                                key={ci}
+                                                className={`whitespace-nowrap border border-outline-variant px-1 py-1.5 ${CELL_BG[cell.trust]} ${CELL_TEXT[cell.trust]}`}
+                                            >
+                                                <div className="flex items-center gap-1">
+                                                    <span>{cell.value}</span>
+                                                    {cell.badge && (
+                                                        <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-surface-variant text-[9px] font-medium leading-none text-on-surface-variant">
+                                                            {cell.badge}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </td>
+                                        ))}
+                                    </tr>
                                 ))}
-                            </div>
-                        ))}
+                            </tbody>
+                        </table>
                     </div>
                     <div className="mt-4 flex flex-wrap gap-x-4 gap-y-1 font-body-sm text-body-sm text-on-surface-variant">
                         <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-trust-high" />High</span>
@@ -280,6 +401,56 @@ function StepRow({ number, title, body }: { number: string; title: string; body:
                 <p className="font-body-md text-body-md text-on-surface-variant mt-0.5">{body}</p>
             </div>
         </div>
+    );
+}
+
+// Tracks the `lg` breakpoint (1024px) that the pipeline grid below switches to
+// two columns at. Read live via matchMedia (same pattern as ThemeToggle's OS-theme
+// listener) rather than CSS alone, because PipelineStep needs to pick between two
+// structurally different elements (a plain row vs. a <details> disclosure) rather
+// than just restyling one.
+function useIsDesktop(): boolean {
+    const [isDesktop, setIsDesktop] = React.useState(() => window.matchMedia('(min-width: 1024px)').matches);
+    React.useEffect(() => {
+        const mq = window.matchMedia('(min-width: 1024px)');
+        const onChange = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
+        mq.addEventListener('change', onChange);
+        return () => mq.removeEventListener('change', onChange);
+    }, []);
+    return isDesktop;
+}
+
+// Same numbered-row layout as StepRow, but on small screens the body collapses
+// behind a native <details> disclosure. Used for the ten-stage pipeline list,
+// which is long enough on a single-column mobile layout that showing every
+// stage's full description at once makes the section hard to scan. Above the
+// `lg` breakpoint the grid goes two columns and there's no need to hide
+// anything, so it renders as a plain always-expanded row with no toggle.
+function PipelineStep({ number, title, body }: { number: string; title: string; body: string }): React.ReactElement {
+    const isDesktop = useIsDesktop();
+
+    if (isDesktop) {
+        return <StepRow number={number} title={title} body={body} />;
+    }
+
+    return (
+        <details className="group">
+            <summary className="flex gap-4 items-start cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden">
+                <div className="w-8 h-8 shrink-0 rounded-full bg-primary flex items-center justify-center mt-0.5">
+                    <span className="font-label-md text-label-md text-on-primary font-semibold">{number}</span>
+                </div>
+                <div className="flex-1 flex items-center justify-between gap-3 mt-0.5">
+                    <p className="font-body-lg text-body-lg text-on-surface font-medium">{title}</p>
+                    <Icon
+                        name="expand_more"
+                        size={20}
+                        weight={300}
+                        className="text-on-surface-variant shrink-0 transition-transform duration-200 group-open:rotate-180"
+                    />
+                </div>
+            </summary>
+            <p className="font-body-md text-body-md text-on-surface-variant mt-1 pl-12">{body}</p>
+        </details>
     );
 }
 
@@ -559,11 +730,17 @@ export default function App(): React.ReactElement {
                                 </a>
                             </div>
                             <p className="font-body-sm text-body-sm text-on-surface-variant">
-                                Free and open source. Available now for Windows and macOS as pre-releases.
+                                Free and open source. Pre-release builds available now for Windows and macOS.
                             </p>
                         </div>
                         <div className="lg:pl-4">
                             <ProductPreview />
+                            <p className="mt-2 text-center font-body-sm text-[11px] text-on-surface-variant/60">
+                                Stylized mock, not a screenshot. Real screenshots are on{' '}
+                                <a href={LINKS.github} target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-on-surface-variant">
+                                    GitHub
+                                </a>.
+                            </p>
                         </div>
                     </section>
 
@@ -686,17 +863,17 @@ export default function App(): React.ReactElement {
                             title="From raw file to verified table"
                             body="Ten stages, all running locally, so no data ever leaves the machine."
                         />
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-12 gap-y-5">
-                            <StepRow number="1" title="Ingest & validate" body="Drop a PDF, PNG, or JPEG. Anchor validates the format and checks whether the document contains extractable content." />
-                            <StepRow number="2" title="OCR" body="Files are rendered to high-resolution images (PDFs rendered withPDFium) and passed through Tesseract for word-level text and bounding boxes." />
-                            <StepRow number="3" title="OCR image preprocessing" body="A separate copy is prepared just for Tesseract: grayscaled and, for small uploads, upscaled with Lanczos resampling. The original image is untouched, so click-to-highlight boxes always land on the right spot." />
-                            <StepRow number="4" title="Context assembly" body="OCR words are sanitized and sorted into reading order. Two views are built from the same word array: spatially-aligned text for the AI, and an indexed word list with bounding boxes for provenance." />
-                            <StepRow number="5" title="AI extraction" body="The local vision-language model reads the image alongside the spatial OCR text and emits a clean table with greedy decoding. Token log-probabilities are captured during streaming." />
-                            <StepRow number="6" title="Grid matching" body="Anchor detects the table's column and row layout from the OCR word positions, then links each cell to its source word within that exact row and column. Duplicate values are placed correctly by position instead of guesswork." />
-                            <StepRow number="7" title="Fallback matching" body="Any cell the grid pass couldn't place is recovered with a reading-order walk, fuzzy text matching, and spatial checks. A final pass compares blank cells against leftover OCR text so dropped content still gets flagged." />
-                            <StepRow number="8" title="Confidence scoring" body="Three signals per cell (AI log-probability as mean and minimum, OCR word confidence, and source agreement) blend into a trust level that drives the color heatmap." />
-                            <StepRow number="9" title="Human verification" body="The table color-codes every cell by trust. Click a cell to highlight its source region; cells with no OCR match get an unverified badge, and approximate matches a lowered-confidence badge." />
-                            <StepRow number="10" title="Export" body="Save verified data as Excel, CSV, HTML, Markdown, or plain text. The model is unloaded from RAM once it's been idle to free resources." />
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-12 gap-y-3">
+                            <PipelineStep number="1" title="Ingest & validate" body="Drop a PDF, PNG, or JPEG. Anchor validates the format and checks whether the document contains extractable content." />
+                            <PipelineStep number="2" title="OCR" body="Files are rendered to high-resolution images (PDFs rendered withPDFium) and passed through Tesseract for word-level text and bounding boxes." />
+                            <PipelineStep number="3" title="OCR image preprocessing" body="A separate copy is prepared just for Tesseract: grayscaled and, for small uploads, upscaled with Lanczos resampling. The original image is untouched, so click-to-highlight boxes always land on the right spot." />
+                            <PipelineStep number="4" title="Context assembly" body="OCR words are sanitized and sorted into reading order. Two views are built from the same word array: spatially-aligned text for the AI, and an indexed word list with bounding boxes for provenance." />
+                            <PipelineStep number="5" title="AI extraction" body="The local vision-language model reads the image alongside the spatial OCR text and emits a clean table with greedy decoding. Token log-probabilities are captured during streaming." />
+                            <PipelineStep number="6" title="Grid matching" body="Anchor detects the table's column and row layout from the OCR word positions, then links each cell to its source word within that exact row and column. Duplicate values are placed correctly by position instead of guesswork." />
+                            <PipelineStep number="7" title="Fallback matching" body="Any cell the grid pass couldn't place is recovered with a reading-order walk, fuzzy text matching, and spatial checks. A final pass compares blank cells against leftover OCR text so dropped content still gets flagged." />
+                            <PipelineStep number="8" title="Confidence scoring" body="Three signals per cell (AI log-probability as mean and minimum, OCR word confidence, and source agreement) blend into a trust level that drives the color heatmap." />
+                            <PipelineStep number="9" title="Human verification" body="The table color-codes every cell by trust. Click a cell to highlight its source region; cells with no OCR match get an unverified badge, and approximate matches a lowered-confidence badge." />
+                            <PipelineStep number="10" title="Export" body="Save verified data as Excel, CSV, HTML, Markdown, or plain text. The model is unloaded from RAM once it's been idle to free resources." />
                         </div>
                     </section>
 
@@ -754,6 +931,9 @@ export default function App(): React.ReactElement {
                                     On first run, Anchor detects your graphics card and downloads the matching
                                     accelerated build: NVIDIA (CUDA) on Windows, or Apple Silicon (Metal) on macOS.
                                 </p>
+                                <p className="font-body-sm text-body-sm text-on-surface-variant">
+                                    Support for other acceleration backends, such as AMD, may be added in a future release.
+                                </p>
                             </div>
                             <div className="rounded-[10px] border border-outline-variant bg-surface-container p-6 flex flex-col gap-3">
                                 <p className="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">CPU fallback</p>
@@ -777,15 +957,19 @@ export default function App(): React.ReactElement {
                             title="Download Anchor"
                             body="A small installer pulls the rest on first launch. No account, no sign-in, just install and start extracting."
                         />
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <DownloadCard
                                 icon="window"
                                 platform="Windows"
-                                detail="Windows 10 / 11 · 64-bit"
+                                detail="Windows 10 (22H2+) or 11 · 64-bit"
                                 href={LINKS.releases}
                                 cta="Download installer"
                                 note="Installer via GitHub Releases (Unsigned for now)."
                             />
+                            {/* Microsoft Store listing isn't live yet (release-strategy.md, Phase 3).
+                                Card is disabled rather than deleted so it's a one-line revert once the
+                                listing ships; re-add it to the grid above and switch back to
+                                sm:grid-cols-3 when that happens.
                             <DownloadCard
                                 icon="storefront"
                                 platform="Microsoft Store"
@@ -793,11 +977,11 @@ export default function App(): React.ReactElement {
                                 href={LINKS.microsoftStore}
                                 cta="Get from Store"
                                 note="Coming with the Store listing."
-                            />
+                            /> */}
                             <DownloadCard
                                 icon="laptop_mac"
                                 platform="macOS"
-                                detail="Universal binary (Apple Silicon and Intel)"
+                                detail="Apple Silicon (M-series) only"
                                 href={LINKS.macDownload}
                                 cta="Download DMG"
                                 note="Installer via GitHub Releases (Unsigned for now)."
@@ -807,12 +991,11 @@ export default function App(): React.ReactElement {
                             <p className="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-4">System requirements</p>
                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-y-3 gap-x-6">
                                 {[
+                                    { icon: 'devices', label: 'Windows 10 (22H2+)/11, or macOS on Apple Silicon' },
                                     { icon: 'memory', label: '8 GB RAM minimum' },
                                     { icon: 'hard_drive', label: '~4 GB free disk for models' },
                                     { icon: 'wifi', label: 'Internet for first-run setup only' },
                                     { icon: 'developer_board', label: 'Optional NVIDIA or Apple Silicon GPU acceleration' },
-                                    { icon: 'lock', label: 'Runs fully offline after setup' },
-                                    { icon: 'verified_user', label: 'All downloads SHA-256 verified' },
                                 ].map(({ icon, label }) => (
                                     <div key={label} className="flex items-center gap-2.5">
                                         <Icon name={icon} size={18} weight={300} className="text-primary shrink-0" />

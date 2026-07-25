@@ -52,7 +52,7 @@ By prioritizing a local‑first architecture, the application guarantees strict 
 
 ## 5. System Requirements & Hardware Adaptability
 
-- Supported platforms: **Windows and macOS**. **Linux support is a planned later addition** and is out of scope for now — no Linux assets are built, uploaded, or pinned, and the Linux code paths that exist are best-effort placeholders only.
+- Supported platforms: **Windows 10 (22H2+) / 11 (x86_64)** and **macOS on Apple Silicon**. Intel Macs are not supported — the `.app` bundle is built as a universal binary (§7.1's `universal-apple-darwin` target lets it install and launch on Intel), but the `llama-server` and PDFium binaries the first-run wizard downloads are arm64-only, so the setup wizard cannot complete on Intel hardware. **Linux support is a planned later addition** and is out of scope for now — no Linux assets are built, uploaded, or pinned, and the Linux code paths that exist are best-effort placeholders only.
 - Minimum spec: 8 GB RAM.
 
 Adaptive hardware modes:
@@ -125,7 +125,7 @@ The app installer is intentionally small (< 20 MB). Platform‑specific binaries
 
 ### 7.1 Asset Inventory
 
-Platforms below are limited to the currently supported targets (**Windows + macOS**); "All" means all *supported* platforms. **Linux is a later addition** — its assets are intentionally not built or pinned yet.
+Platforms below are limited to the currently supported targets (**Windows + macOS on Apple Silicon**); "All" means all *supported* platforms. **Linux is a later addition** — its assets are intentionally not built or pinned yet.
 
 | Asset | Platforms | Primary Source | Fallback | Size |
 |---|---|---|---|---|
@@ -135,7 +135,7 @@ Platforms below are limited to the currently supported targets (**Windows + macO
 | `llama-server` CUDA build | Windows | Cloudflare R2 | llama.cpp GitHub releases | ~261 MB |
 | CUDA runtime libraries (`cudart`) | Windows (CUDA only) | Cloudflare R2 | — | ~391 MB |
 | `llama-server` Metal build | macOS (Apple Silicon) | Cloudflare R2 | llama.cpp GitHub releases | ~10.5 MB |
-| PDFium shared library | Windows / macOS | Cloudflare R2 | — | ~3.7 MB |
+| PDFium shared library | Windows / macOS (Apple Silicon) | Cloudflare R2 | — | ~3.7 MB |
 | `Qwen3.5‑4B‑Q4_K_M.gguf` | All | Cloudflare R2 | HuggingFace (unsloth/Qwen3.5‑4B‑GGUF) | ~2.74 GB |
 | `mmproj‑F16.gguf` | All | Cloudflare R2 | HuggingFace (unsloth/Qwen3.5‑4B‑GGUF, `mmproj‑F16.gguf`) | ~672 MB |
 
