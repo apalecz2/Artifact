@@ -10,12 +10,12 @@ import { syncFaviconToSystemTheme } from './favicon';
 const LINKS = {
     /** Public repository. */
     github: 'https://github.com/apalecz2/anchor',
-    /** GitHub Releases page — the primary Windows download (release-strategy.md, Phase 1). */
+    /** GitHub Releases page: the Windows and macOS download (release-strategy.md, Phase 1). */
     releases: 'https://github.com/apalecz2/anchor/releases/latest',
-    /** Microsoft Store listing — planned (release-strategy.md, Phase 3). Leave empty until live. */
+    /** Microsoft Store listing, planned (release-strategy.md, Phase 3). Leave empty until live. */
     microsoftStore: '',
-    /** macOS DMG — deferred (release-strategy.md, Phase 4). Leave empty until shipped. */
-    macDownload: '',
+    /** macOS DMG. Same GitHub Releases page as Windows; universal build, unsigned for now. */
+    macDownload: 'https://github.com/apalecz2/anchor/releases/latest',
 };
 
 const NAV = [
@@ -527,7 +527,7 @@ export default function App(): React.ReactElement {
                     <section className="py-16 sm:py-24 grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
                         <div className="flex flex-col gap-6">
                             <div>
-                                <span className="px-3 py-1 rounded-full bg-primary/10 font-label-md text-label-md text-primary border border-primary/20">
+                                <span className="px-3 py-1 rounded-full bg-primary/10 backdrop-blur-md font-label-md text-label-md text-primary border border-primary/20">
                                     Free · Private · Runs offline
                                 </span>
                             </div>
@@ -537,7 +537,7 @@ export default function App(): React.ReactElement {
                             <p className="font-body-lg text-body-lg text-on-surface-variant max-w-xl">
                                 Anchor pulls the tables out of your PDFs and photos (transcripts, invoices, statements,
                                 lab results, spreadsheets locked inside a scan) and turns them into clean rows and columns
-                                you can open in Excel. Everything happens on your own computer. Nothing is ever uploaded,
+                                you can open in Excel or Google Sheets. Everything happens on your own computer. Nothing is ever uploaded,
                                 so your sensitive records stay yours alone.
                             </p>
                             <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-3 pt-2">
@@ -559,7 +559,7 @@ export default function App(): React.ReactElement {
                                 </a>
                             </div>
                             <p className="font-body-sm text-body-sm text-on-surface-variant">
-                                Free and open source. Windows now, with macOS planned for a later release.
+                                Free and open source. Available now for Windows and macOS as pre-releases.
                             </p>
                         </div>
                         <div className="lg:pl-4">
@@ -573,7 +573,7 @@ export default function App(): React.ReactElement {
                             { stat: '0', label: 'Files sent to the cloud' },
                             { stat: '$0', label: 'Cost to download' },
                             { stat: '100%', label: 'Runs offline on your PC' },
-                            { stat: 'Excel', label: 'Export straight to Excel' },
+                            { stat: '.xlsx', label: 'Export straight to Excel' },
                         ].map(({ stat, label }) => (
                             <div key={label} className="rounded-[10px] border border-outline-variant bg-surface-container p-5 text-center">
                                 <p className="font-display-lg text-headline-lg text-primary">{stat}</p>
@@ -586,7 +586,7 @@ export default function App(): React.ReactElement {
                     <section className="flex flex-col gap-8 pb-16 sm:pb-24">
                         <SectionHeading
                             title="The tables you need are stuck in your documents"
-                            body="The data you actually want is usually a table, trapped inside a scanned PDF, a photo of a page, or a printout that was never a spreadsheet. Getting it into rows and columns today means one of two bad options: paste it into a cloud tool that ships your private records off to someone else's servers, or retype the whole thing by hand, where one character error (a missing zero, a decimal point in the wrong place) could transform your data from millions to thousands, or dollars to cents."
+                            body="The data you actually want is usually a table, trapped inside a scanned PDF, a photo of a page, or a printout that was never a spreadsheet. Getting it into rows and columns today means one of two bad options: paste it into a cloud tool that ships your private records off to someone else's servers, or retype the whole thing by hand, where one character error (a missing zero, a decimal point in the wrong place) could silently turn a million-dollar figure into a thousand-dollar one, or a dollar amount into pennies."
                         />
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                             {[
@@ -684,18 +684,19 @@ export default function App(): React.ReactElement {
                         <SectionHeading
                             overline="Pipeline"
                             title="From raw file to verified table"
-                            body="Nine stages, all running locally, so no data ever leaves the machine."
+                            body="Ten stages, all running locally, so no data ever leaves the machine."
                         />
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-12 gap-y-5">
                             <StepRow number="1" title="Ingest & validate" body="Drop a PDF, PNG, or JPEG. Anchor validates the format and checks whether the document contains extractable content." />
-                            <StepRow number="2" title="OCR" body="Files are rendered to high-resolution images (PDFs at 2000 px wide via PDFium; image uploads as-is) and passed through Tesseract for word-level text and bounding boxes." />
+                            <StepRow number="2" title="OCR" body="Files are rendered to high-resolution images (PDFs rendered withPDFium) and passed through Tesseract for word-level text and bounding boxes." />
                             <StepRow number="3" title="OCR image preprocessing" body="A separate copy is prepared just for Tesseract: grayscaled and, for small uploads, upscaled with Lanczos resampling. The original image is untouched, so click-to-highlight boxes always land on the right spot." />
                             <StepRow number="4" title="Context assembly" body="OCR words are sanitized and sorted into reading order. Two views are built from the same word array: spatially-aligned text for the AI, and an indexed word list with bounding boxes for provenance." />
-                            <StepRow number="5" title="Stage 1: AI extraction" body="The local vision-language model reads the image alongside the spatial OCR text and emits a clean table with greedy decoding. Token log-probabilities are captured during streaming." />
-                            <StepRow number="6" title="Stage 2: Provenance matching" body="A deterministic algorithm walks the cells and OCR words in parallel. Each cell is linked to its source word. Even when dozens share identical values, sequence position disambiguates them." />
-                            <StepRow number="7" title="Confidence scoring" body="Three signals per cell (AI log-probability as mean and minimum, OCR word confidence, and source agreement) blend into a trust level that drives the color heatmap." />
-                            <StepRow number="8" title="Human verification" body="The table color-codes every cell by trust. Click a cell to highlight its source region; cells with no OCR match get an unverified badge, and approximate matches a lowered-confidence badge." />
-                            <StepRow number="9" title="Export" body="Save verified data as Excel, CSV, HTML, Markdown, or plain text. The model is unloaded from RAM once it's been idle to free resources." />
+                            <StepRow number="5" title="AI extraction" body="The local vision-language model reads the image alongside the spatial OCR text and emits a clean table with greedy decoding. Token log-probabilities are captured during streaming." />
+                            <StepRow number="6" title="Grid matching" body="Anchor detects the table's column and row layout from the OCR word positions, then links each cell to its source word within that exact row and column. Duplicate values are placed correctly by position instead of guesswork." />
+                            <StepRow number="7" title="Fallback matching" body="Any cell the grid pass couldn't place is recovered with a reading-order walk, fuzzy text matching, and spatial checks. A final pass compares blank cells against leftover OCR text so dropped content still gets flagged." />
+                            <StepRow number="8" title="Confidence scoring" body="Three signals per cell (AI log-probability as mean and minimum, OCR word confidence, and source agreement) blend into a trust level that drives the color heatmap." />
+                            <StepRow number="9" title="Human verification" body="The table color-codes every cell by trust. Click a cell to highlight its source region; cells with no OCR match get an unverified badge, and approximate matches a lowered-confidence badge." />
+                            <StepRow number="10" title="Export" body="Save verified data as Excel, CSV, HTML, Markdown, or plain text. The model is unloaded from RAM once it's been idle to free resources." />
                         </div>
                     </section>
 
@@ -706,12 +707,12 @@ export default function App(): React.ReactElement {
                             <FeatureCard
                                 icon="thermostat"
                                 title="Per-cell confidence scoring"
-                                body="Every extracted cell is color-coded green, yellow, or red based on a blend of AI token log-probability and Tesseract OCR word confidence. The minimum token probability is tracked separately to catch a single shaky digit hiding inside an otherwise confident number."
+                                body="Every extracted cell is color-coded green, yellow, or red based on three signals: AI token log-probability, Tesseract OCR word confidence, and whether the two sources agree. A disagreement between the AI and the OCR always pulls a cell down, and the minimum token probability is tracked separately to catch a single shaky digit hiding inside an otherwise confident number."
                             />
                             <FeatureCard
                                 icon="account_tree"
                                 title="Deterministic source matching"
-                                body="A code-based reading-order walk links each extracted cell back to the OCR words it came from, with no extra model tokens and no latency. A fuzzy second pass recovers single-character OCR misreads and flags them as approximate so you know exactly what to double-check."
+                                body="A grid-first spatial matcher links each extracted cell back to its source OCR words using column geometry and row alignment, with no extra model tokens and no latency. A reading-order walk covers untabular layouts, a fuzzy pass recovers OCR text that's close but not an exact match, and a final pass checks blank cells against leftover OCR text so dropped content never goes unnoticed."
                             />
                         </div>
                     </section>
@@ -725,7 +726,7 @@ export default function App(): React.ReactElement {
                                 { label: 'Framework', value: 'Tauri', note: 'Lightweight native desktop shell with lower overhead than Electron' },
                                 { label: 'AI runtime', value: 'llama.cpp server', note: 'Model-agnostic inference; swap models without rebuilding' },
                                 { label: 'Vision model', value: 'Qwen3.5-4b (multimodal)', note: 'Handles vision tasks and OCR validation locally' },
-                                { label: 'OCR engine', value: 'Tesseract', note: 'Word-level bounding boxes and per-character confidence' },
+                                { label: 'OCR engine', value: 'Tesseract', note: 'Word-level bounding boxes and per-word confidence' },
                                 { label: 'Image preprocessing', value: 'image (Rust)', note: 'Grayscale + Lanczos upscaling before OCR, with no system OpenCV dependency' },
                                 { label: 'PDF rendering', value: 'PDFium', note: 'High-fidelity 2000px renders from native PDF pages' },
                                 { label: 'Storage', value: 'SQLite (local)', note: 'Session and file metadata stored entirely on-device' },
@@ -751,14 +752,14 @@ export default function App(): React.ReactElement {
                                 <h3 className="font-headline-md text-headline-md text-on-surface">Automatic detection</h3>
                                 <p className="font-body-md text-body-md text-on-surface-variant">
                                     On first run, Anchor detects your graphics card and downloads the matching
-                                    accelerated build — NVIDIA (CUDA), AMD (ROCm), or Apple Silicon (Metal).
+                                    accelerated build: NVIDIA (CUDA) on Windows, or Apple Silicon (Metal) on macOS.
                                 </p>
                             </div>
                             <div className="rounded-[10px] border border-outline-variant bg-surface-container p-6 flex flex-col gap-3">
                                 <p className="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">CPU fallback</p>
                                 <h3 className="font-headline-md text-headline-md text-on-surface">Runs on any machine</h3>
                                 <p className="font-body-md text-body-md text-on-surface-variant">
-                                    No GPU required — Anchor runs the full pipeline on your CPU, and a GPU build
+                                    No GPU required. Anchor runs the full pipeline on your CPU, and a GPU build
                                     automatically falls back to CPU if acceleration can't initialize.
                                 </p>
                             </div>
@@ -796,10 +797,10 @@ export default function App(): React.ReactElement {
                             <DownloadCard
                                 icon="laptop_mac"
                                 platform="macOS"
-                                detail="Apple Silicon · notarized DMG"
+                                detail="Universal binary (Apple Silicon and Intel)"
                                 href={LINKS.macDownload}
                                 cta="Download DMG"
-                                note="Planned in a later release."
+                                note="Installer via GitHub Releases (Unsigned for now)."
                             />
                         </div>
                         <div className="rounded-[10px] border border-outline-variant bg-surface-container p-6">
@@ -809,7 +810,7 @@ export default function App(): React.ReactElement {
                                     { icon: 'memory', label: '8 GB RAM minimum' },
                                     { icon: 'hard_drive', label: '~4 GB free disk for models' },
                                     { icon: 'wifi', label: 'Internet for first-run setup only' },
-                                    { icon: 'developer_board', label: 'Optional NVIDIA, AMD, or Apple Silicon GPU acceleration' },
+                                    { icon: 'developer_board', label: 'Optional NVIDIA or Apple Silicon GPU acceleration' },
                                     { icon: 'lock', label: 'Runs fully offline after setup' },
                                     { icon: 'verified_user', label: 'All downloads SHA-256 verified' },
                                 ].map(({ icon, label }) => (
