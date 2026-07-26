@@ -28,7 +28,7 @@ const FOUNDED_YEAR = 2026;
 const NAV = [
     { href: '#features', label: 'Features' },
     { href: '#how', label: 'How it works' },
-    { href: '#deep-dive', label: 'Deeper look' },
+    { href: '#deep-dive', label: 'Architecture' },
     { href: '#download', label: 'Download' },
 ];
 
@@ -408,6 +408,20 @@ function StepRow({ number, title, body }: { number: string; title: string; body:
     );
 }
 
+// Swaps the hero CTA's platform name to match the visitor's OS, so a macOS
+// visitor isn't told (as the most prominent instruction on the page) to grab
+// a Windows build. Read once via userAgent — lazy useState initializer, same
+// pattern as useIsDesktop below — since this is a browser-only SPA with no
+// SSR pass to worry about.
+function usePlatformLabel(): string | null {
+    return React.useState<string | null>(() => {
+        const ua = window.navigator.userAgent;
+        if (/Mac OS X|Macintosh/.test(ua)) return 'macOS';
+        if (/Windows/.test(ua)) return 'Windows';
+        return null;
+    })[0];
+}
+
 // Tracks the `lg` breakpoint (1024px) that the pipeline grid below switches to
 // two columns at. Read live via matchMedia (same pattern as ThemeToggle's OS-theme
 // listener) rather than CSS alone, because PipelineStep needs to pick between two
@@ -671,6 +685,7 @@ export default function App(): React.ReactElement {
     // Keep the browser-tab favicon contrasting with the OS / browser theme so
     // it stays visible even when the page theme is toggled away from the system.
     React.useEffect(() => syncFaviconToSystemTheme(), []);
+    const platform = usePlatformLabel();
 
     return (
         <div id="top" className="relative bg-surface min-h-screen">
@@ -703,7 +718,7 @@ export default function App(): React.ReactElement {
                         <div className="flex flex-col gap-6">
                             <div>
                                 <span className="px-3 py-1 rounded-full bg-primary/10 backdrop-blur-md font-label-md text-label-md text-primary border border-primary/20">
-                                    Free · Private · Runs offline
+                                    Free · Private · Offline after setup
                                 </span>
                             </div>
                             <h1 className="font-display-lg text-4xl sm:text-display-lg text-primary tracking-tight">
@@ -720,7 +735,7 @@ export default function App(): React.ReactElement {
                                     className="flex items-center justify-center gap-2 px-6 py-3 rounded-full bg-primary text-on-primary font-label-md text-label-md font-semibold hover:opacity-90 transition-opacity no-underline"
                                 >
                                     <Icon name="download" size={18} />
-                                    Download free for Windows
+                                    Get Anchor free{platform ? ` for ${platform}` : ''}
                                 </a>
                                 <a
                                     href={LINKS.github}
@@ -748,12 +763,11 @@ export default function App(): React.ReactElement {
                     </section>
 
                     {/* ── Trust strip ── */}
-                    <section className="grid grid-cols-2 sm:grid-cols-4 gap-4 pb-16 sm:pb-24">
+                    <section className="grid grid-cols-1 sm:grid-cols-3 gap-4 pb-16 sm:pb-24">
                         {[
                             { stat: '0', label: 'Files sent to the cloud' },
                             { stat: '$0', label: 'Cost to download' },
-                            { stat: '100%', label: 'Runs offline on your PC' },
-                            { stat: '.xlsx', label: 'Export straight to Excel' },
+                            { stat: '100%', label: 'Runs offline after setup' },
                         ].map(({ stat, label }) => (
                             <div key={label} className="rounded-[10px] border border-outline-variant bg-surface-container p-5 text-center">
                                 <p className="font-display-lg text-headline-lg text-primary">{stat}</p>
@@ -770,9 +784,9 @@ export default function App(): React.ReactElement {
                         />
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                             {[
-                                { icon: 'cloud_off', label: 'Online tools send your private records to someone else’s servers' },
+                                { icon: 'cloud_off', label: "Online tools send your private records to someone else's servers" },
                                 { icon: 'schedule', label: 'Retyping tables by hand is slow, tedious, and easy to get wrong' },
-                                { icon: 'search_off', label: 'Once it’s typed up, there’s no easy way to check it against the original' },
+                                { icon: 'search_off', label: "Once it's typed up, there's no easy way to check it against the original" },
                             ].map(({ icon, label }) => (
                                 <div key={icon} className="flex gap-3 items-start rounded-[10px] border border-outline-variant bg-surface-container p-4">
                                     <Icon name={icon} size={18} weight={300} className="text-on-surface-variant shrink-0 mt-0.5" />
@@ -794,7 +808,7 @@ export default function App(): React.ReactElement {
                             <FeatureCard
                                 icon="lock"
                                 title="Completely private"
-                                body="Everything runs on your own computer, with no accounts, no uploads, and no internet needed after setup. Your medical, legal, and financial records never leave your machine, so there's nothing to leak."
+                                body="Everything runs on your own computer, with no accounts, no uploads, no telemetry, and no internet needed after setup. Your medical, legal, and financial records stay under your control the whole time."
                             />
                             <FeatureCard
                                 icon="visibility"
@@ -847,7 +861,7 @@ export default function App(): React.ReactElement {
                     {/* ══════════════ DEEPER LOOK - technical content below ══════════════ */}
                     <section id="deep-dive" className="scroll-mt-20 pb-16 sm:pb-24">
                         <div className="rounded-[14px] border border-outline-variant bg-surface-container-low p-8 sm:p-10 flex flex-col gap-4">
-                            <span className="font-label-md text-label-md text-primary uppercase tracking-wider">A deeper look</span>
+                            <span className="font-label-md text-label-md text-primary uppercase tracking-wider">Architecture</span>
                             <h2 className="font-headline-lg text-headline-lg text-on-surface max-w-2xl">
                                 For the technical
                             </h2>
@@ -882,7 +896,7 @@ export default function App(): React.ReactElement {
 
                     {/* ── Under the hood ── */}
                     <section className="flex flex-col gap-8 pb-16 sm:pb-24">
-                        <SectionHeading overline="Architecture" title="Under the hood" />
+                        <SectionHeading overline="Tech stack" title="Under the hood" />
                         <div className="rounded-[10px] border border-outline-variant bg-surface-container divide-y divide-outline-variant">
                             {[
                                 { label: 'Interface', value: 'React + TypeScript', note: 'Type-safe, interactive UI' },
@@ -931,8 +945,9 @@ export default function App(): React.ReactElement {
                             </div>
                         </div>
                         <p className="font-body-md text-body-md text-on-surface-variant max-w-2xl">
-                            The installer is small; the AI model and platform binaries (~3.5 GB) are downloaded
-                            once on first launch and SHA-256 verified.
+                            The installer is small; the AI model and platform binaries are downloaded once on
+                            first launch and SHA-256 verified: about 3.5 GB (CPU or Apple Silicon), or ~4 GB
+                            on Windows with the NVIDIA CUDA build.
                         </p>
                     </section>
 
@@ -979,7 +994,7 @@ export default function App(): React.ReactElement {
                                 {[
                                     { icon: 'devices', label: 'Windows 10 (22H2+)/11, or macOS on Apple Silicon' },
                                     { icon: 'memory', label: '8 GB RAM minimum' },
-                                    { icon: 'hard_drive', label: '~4 GB free disk for models' },
+                                    { icon: 'hard_drive', label: '~3.5 GB free disk for models (~4 GB with CUDA)' },
                                     { icon: 'wifi', label: 'Internet for first-run setup only' },
                                     { icon: 'developer_board', label: 'Optional NVIDIA or Apple Silicon GPU acceleration' },
                                 ].map(({ icon, label }) => (
