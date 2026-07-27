@@ -7,9 +7,7 @@ import { WordEditModal } from '../../features/extraction/WordEditModal';
 import type { DocumentPageResult } from '../../features/extraction/types';
 import type { ProcessProgress } from '../../features/extraction/useDocumentExtraction';
 import type { BoundingBox } from '../../features/ocr/types';
-import { useElementBounds } from '../../hooks/useElementBounds';
-import { useSplitLayoutBounds } from '../../layouts/SplitLayout';
-import { iconBtnClass, HelpIsland } from './sessionToolbar';
+import { iconBtnClass } from './sessionToolbar';
 import { SourceHelp } from './SessionHelp';
 
 type EditingState = { box?: BoundingBox | null; id?: string; text?: string } | null;
@@ -141,11 +139,7 @@ export function SourceDocumentPane(props: SourceDocumentPaneProps): React.ReactE
     // viewer for a clear message instead of leaving a blank/broken pane.
     const [imageLoadFailed, setImageLoadFailed] = React.useState(false);
 
-    // Help overlay: centered over this pane's own footprint (via its bounds),
-    // not the whole app window — see useElementBounds/HelpOverlay.
     const [helpOpen, setHelpOpen] = React.useState(false);
-    const [paneRef, helpBounds] = useElementBounds<HTMLDivElement>(helpOpen);
-    const sessionBounds = useSplitLayoutBounds();
 
     // Reset whenever the source image changes (page switch, retry, or a new
     // session), so a prior failure doesn't stick to a freshly-loaded image.
@@ -173,10 +167,21 @@ export function SourceDocumentPane(props: SourceDocumentPaneProps): React.ReactE
 
     return (
         <>
-            <div className="mb-4 flex min-h-[40px] items-center">
+            <div className="mb-4 flex min-h-[40px] items-center justify-between">
                 <h2 className="font-headline-md text-headline-md text-primary truncate">Source Document</h2>
+                {activePage && (
+                    <button
+                        onClick={() => setHelpOpen(true)}
+                        aria-label="About the source document tools"
+                        title="Help"
+                        type="button"
+                        className={iconBtnClass}
+                    >
+                        <Icon name="info" size={18} />
+                    </button>
+                )}
             </div>
-            <div ref={paneRef} className="relative flex-1 overflow-hidden rounded-2xl border border-outline-variant bg-surface-bright shadow-sm">
+            <div className="relative flex-1 overflow-hidden rounded-2xl border border-outline-variant bg-surface-bright shadow-sm">
                 {isDbLoading ? (
                     showProcessing ? (
                         <div className="flex w-full flex-col items-center justify-center gap-3 h-full text-on-surface-variant">
@@ -363,15 +368,12 @@ export function SourceDocumentPane(props: SourceDocumentPaneProps): React.ReactE
                             </button>
                         </div>
                         </div>
-
-                        {/* Second island: help for the source-document side. */}
-                        <HelpIsland onClick={() => setHelpOpen(true)} label="About the source document tools" />
                     </div>
                 )}
             </div>
 
             {helpOpen && (
-                <HelpOverlay title="Source Document" onClose={() => setHelpOpen(false)} bounds={helpBounds} dimBounds={sessionBounds}>
+                <HelpOverlay title="Source Document" onClose={() => setHelpOpen(false)}>
                     <SourceHelp />
                 </HelpOverlay>
             )}

@@ -12,9 +12,7 @@ import { parseCSV } from '../../features/llama/promptUtils';
 import type { ExtractionPhase } from '../../features/llama/useLlamaChat';
 import type { DocumentPageResult, ProvenanceCell } from '../../features/extraction/types';
 import type { LineWord } from '../../features/extraction/types';
-import { useElementBounds } from '../../hooks/useElementBounds';
-import { useSplitLayoutBounds } from '../../layouts/SplitLayout';
-import { HelpIsland, iconBtnClass } from './sessionToolbar';
+import { iconBtnClass } from './sessionToolbar';
 import { OutputHelp } from './SessionHelp';
 
 interface ExtractionOutputPaneProps {
@@ -178,11 +176,7 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
     // (handleFormatTable bails on a page with no words/fileUrl).
     const hasWords = (activePage?.words?.length ?? 0) > 0;
 
-    // Help overlay: centered over this pane's own footprint (via its bounds),
-    // not the whole app window — see useElementBounds/HelpOverlay.
     const [helpOpen, setHelpOpen] = useState(false);
-    const [paneRef, helpBounds] = useElementBounds<HTMLDivElement>(helpOpen);
-    const sessionBounds = useSplitLayoutBounds();
 
     // Cells worth a second look, in reading order — turns proofreading from a
     // scan of the whole table into a worklist (see the toolbar's review nav).
@@ -331,20 +325,31 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
                     {outputView === 'raw' ? 'Extracted Text' : 'Formatted Table'}
                 </h1>
                 {activePage && (
-                    <div className="flex shrink-0 bg-surface-variant rounded-lg p-1">
+                    <div className="flex shrink-0 items-center gap-2">
+                        <div className="flex shrink-0 bg-surface-variant rounded-lg p-1">
+                            <button
+                                onClick={() => setOutputView('raw')}
+                                aria-pressed={outputView === 'raw'}
+                                className={`h-7 px-3 rounded-md text-sm transition-colors ${outputView === 'raw' ? 'bg-surface text-primary shadow-sm' : 'text-on-surface-variant hover:text-on-surface'}`}
+                            >
+                                Raw Text
+                            </button>
+                            <button
+                                onClick={() => setOutputView('table')}
+                                aria-pressed={outputView === 'table'}
+                                className={`h-7 px-3 rounded-md text-sm transition-colors ${outputView === 'table' ? 'bg-surface text-primary shadow-sm' : 'text-on-surface-variant hover:text-on-surface'}`}
+                            >
+                                Formatted Table
+                            </button>
+                        </div>
                         <button
-                            onClick={() => setOutputView('raw')}
-                            aria-pressed={outputView === 'raw'}
-                            className={`h-7 px-3 rounded-md text-sm transition-colors ${outputView === 'raw' ? 'bg-surface text-primary shadow-sm' : 'text-on-surface-variant hover:text-on-surface'}`}
+                            onClick={() => setHelpOpen(true)}
+                            aria-label="About the extracted text and table tools"
+                            title="Help"
+                            type="button"
+                            className={iconBtnClass}
                         >
-                            Raw Text
-                        </button>
-                        <button
-                            onClick={() => setOutputView('table')}
-                            aria-pressed={outputView === 'table'}
-                            className={`h-7 px-3 rounded-md text-sm transition-colors ${outputView === 'table' ? 'bg-surface text-primary shadow-sm' : 'text-on-surface-variant hover:text-on-surface'}`}
-                        >
-                            Formatted Table
+                            <Icon name="info" size={18} />
                         </button>
                     </div>
                 )}
@@ -353,7 +358,7 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
             {/* No surrounding card here: the output/content (e.g. the AI output
                 card) sits directly on the pane. This wrapper only provides the
                 scroll area and the positioning context for the floating toolbar. */}
-            <div ref={paneRef} className="relative flex-1 overflow-hidden">
+            <div className="relative flex-1 overflow-hidden">
                 <div className="h-full overflow-auto pb-24">
                 {isDbLoading ? (
                     showProcessing ? (
@@ -740,15 +745,12 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
                                 )}
                             </div>
                         )}
-
-                        {/* Second island: help for the extracted-text / table side. */}
-                        <HelpIsland onClick={() => setHelpOpen(true)} label="About the extracted text and table tools" />
                     </div>
                 )}
             </div>
 
             {helpOpen && (
-                <HelpOverlay title="Extracted Text & Table" onClose={() => setHelpOpen(false)} bounds={helpBounds} dimBounds={sessionBounds}>
+                <HelpOverlay title="Extracted Text & Table" onClose={() => setHelpOpen(false)}>
                     <OutputHelp />
                 </HelpOverlay>
             )}

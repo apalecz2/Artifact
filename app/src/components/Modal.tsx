@@ -16,14 +16,6 @@ interface ModalProps {
      * different dim/blur.
      */
     backdropClassName?: string;
-    /** Inline styles for the backdrop, e.g. an explicit `top/left/width/height`
-     *  rect so the (still viewport-fixed) backdrop is scoped to one region of
-     *  the screen instead of the full viewport. */
-    backdropStyle?: React.CSSProperties;
-    /** Inline styles for the panel itself, e.g. an explicit fixed position so
-     *  it can be anchored independently of the backdrop's own rect (dimming a
-     *  wider area than the panel is centered over). */
-    panelStyle?: React.CSSProperties;
     role?: 'dialog' | 'alertdialog';
     /** id of the element labelling the dialog (maps to aria-labelledby). */
     labelledBy?: string;
@@ -51,8 +43,6 @@ export function Modal({
     children,
     className,
     backdropClassName = DEFAULT_BACKDROP,
-    backdropStyle,
-    panelStyle,
     role = 'dialog',
     labelledBy,
     describedBy,
@@ -65,7 +55,7 @@ export function Modal({
     if (!open) return null;
 
     const overlay = (
-        <div className={backdropClassName} style={backdropStyle} role="presentation" onClick={onClose}>
+        <div className={backdropClassName} role="presentation" onClick={onClose}>
             <div
                 ref={dialogRef}
                 tabIndex={-1}
@@ -74,7 +64,6 @@ export function Modal({
                 aria-labelledby={labelledBy}
                 aria-describedby={describedBy}
                 className={className}
-                style={panelStyle}
                 onClick={(event) => event.stopPropagation()}
             >
                 {children}
