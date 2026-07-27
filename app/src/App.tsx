@@ -1,4 +1,4 @@
-import { HashRouter, Routes, Route } from 'react-router';
+import { Routes, Route } from 'react-router';
 import "./App.css";
 import Icon from './components/Icon';
 import AppLayout from './layouts/AppLayout';
@@ -13,20 +13,20 @@ import { useSetupCheck, clearSetupRerun } from './features/setup/useSetupCheck';
 import FirstRunEula from './features/legal/FirstRunEula';
 import { useEulaAcceptance } from './features/legal/eulaAcceptance';
 
+// The `HashRouter` itself lives in `AppShell`, one level up, so the title bar's
+// back/forward buttons are inside it too.
 function AppRouter() {
     return (
-        <HashRouter>
-            <Routes>
-                <Route path="/" element={<AppLayout />}>
-                    <Route index element={<Dashboard />} />
-                    <Route path="session/:id" element={<Session />} />
-                    <Route path="search" element={<Search />} />
-                    <Route path="settings" element={<Settings />} />
-                    <Route path="about" element={<About />} />
-                    <Route path="legal/:doc" element={<Legal />} />
-                </Route>
-            </Routes>
-        </HashRouter>
+        <Routes>
+            <Route path="/" element={<AppLayout />}>
+                <Route index element={<Dashboard />} />
+                <Route path="session/:id" element={<Session />} />
+                <Route path="search" element={<Search />} />
+                <Route path="settings" element={<Settings />} />
+                <Route path="about" element={<About />} />
+                <Route path="legal/:doc" element={<Legal />} />
+            </Route>
+        </Routes>
     );
 }
 

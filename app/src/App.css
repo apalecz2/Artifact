@@ -18,6 +18,20 @@
 	--color-surface-container: var(--surface-container);
 	--color-surface-container-high: var(--surface-container-high);
 	--color-surface-container-highest: var(--surface-container-highest);
+	/* Window chrome. Its own step rather than a `surface-container-*` one so the
+	   title bar reads as frame, not as another panel — the sidebar already owns
+	   `surface-container`, and sitting at the same value made the two blur into
+	   one. `titlebar-hover` is the button fill *on* that step; the generic
+	   `surface-variant` hover is too close to it to register. */
+	--color-titlebar: var(--titlebar);
+	--color-titlebar-hover: var(--titlebar-hover);
+	/* The close button's hover/press reds. Literal, not `var(--…)` like the two
+	   above, because this pair is deliberately *not* theme-dependent: it's the
+	   system close red every desktop app shares, and it reads the same on a light
+	   or dark bar. `--error` is no substitute — it's the palette's text/alert red,
+	   and its dark-mode value is a pale salmon meant for foregrounds. */
+	--color-titlebar-close: #e81123;
+	--color-titlebar-close-active: #c50f1f;
 	--color-outline: var(--outline);
 	--color-outline-variant: var(--outline-variant);
 	--color-primary: var(--primary);
@@ -113,6 +127,9 @@
 	--surface-container: #efeeec;
 	--surface-container-high: #e9e8e6;
 	--surface-container-highest: #e3e2e0;
+	/* Light mode recesses the chrome: page #faf9f7 → sidebar #efeeec → bar. */
+	--titlebar: #e0ddd7;
+	--titlebar-hover: #cfcbc4;
 	--outline: #747878;
 	--outline-variant: #c4c7c7;
 	--primary: #000000;
@@ -143,6 +160,10 @@ html.dark {
 	--surface-container: #201f1f;
 	--surface-container-high: #2a2a2a;
 	--surface-container-highest: #353534;
+	/* Dark mode lifts it instead — going darker than the #131313 page would bleed
+	   into the desktop behind an undecorated window. */
+	--titlebar: #2c2b29;
+	--titlebar-hover: #3d3b39;
 	--outline: #8e9192;
 	--outline-variant: #444748;
 	--primary: #fdfdfc;
