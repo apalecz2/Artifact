@@ -90,7 +90,7 @@ jobs:
       # Tier 4 E2E (tauri-driver + WebdriverIO) is scaffolded in e2e/ but not yet
       # implemented. Re-enable once the wdio specs are real AND e2e/package-lock.json is
       # committed — `npm ci` requires a lockfile and will never generate one. Until then,
-      # running it only produces nightly noise (see docs/store-release-plan.md Phase 4).
+      # running it only produces nightly noise (see docs/release.md §7).
       # - name: Install tauri-driver
       #   run: cargo install tauri-driver --locked
       # - name: Run E2E

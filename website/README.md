@@ -59,4 +59,4 @@ Edit the `LINKS` constant at the top of [`src/App.tsx`](src/App.tsx):
 | `macDownload` | macOS DMG URL — leave empty until shipped (Phase 4) |
 
 Empty download links automatically render as a disabled **Coming soon** button,
-matching the rollout sequence in [`docs/release-strategy.md`](../docs/release-strategy.md).
+matching the rollout sequence in [`docs/release.md`](../docs/release.md) §3.

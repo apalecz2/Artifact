@@ -10,9 +10,9 @@ import { syncFaviconToSystemTheme } from './favicon';
 const LINKS = {
     /** Public repository. */
     github: 'https://github.com/apalecz2/anchor',
-    /** GitHub Releases page: the Windows and macOS download (release-strategy.md, Phase 1). */
+    /** GitHub Releases page: the Windows and macOS download (docs/release.md §2). */
     releases: 'https://github.com/apalecz2/anchor/releases/latest',
-    /** Microsoft Store listing, planned (release-strategy.md, Phase 3). Leave empty until live. */
+    /** Microsoft Store listing, planned (docs/release.md §6). Leave empty until live. */
     microsoftStore: '',
     /** macOS DMG. Same GitHub Releases page as Windows. The .app itself is a universal
      *  build, but the AI runtime it downloads on first launch (llama-server, PDFium) is
@@ -967,7 +967,7 @@ export default function App(): React.ReactElement {
                                 cta="Download installer"
                                 note="Installer via GitHub Releases (Unsigned for now)."
                             />
-                            {/* Microsoft Store listing isn't live yet (release-strategy.md, Phase 3).
+                            {/* Microsoft Store listing is not live yet (docs/release.md §6).
                                 Card is disabled rather than deleted so it's a one-line revert once the
                                 listing ships; re-add it to the grid above and switch back to
                                 sm:grid-cols-3 when that happens.

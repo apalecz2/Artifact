@@ -8,7 +8,7 @@ name: release
 # Versioning: the installer filename uses the `version` in app/src-tauri/tauri.conf.json,
 # so keep the tag (vX.Y.Z) and that version in sync.
 #
-# Code signing is added later (release-strategy.md Phase 2): set the signing env
+# Code signing is added later (docs/release.md §5): set the signing env
 # vars on the tauri-action step and the produced installer is signed automatically.
 
 on:

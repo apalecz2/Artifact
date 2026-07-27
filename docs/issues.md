@@ -2,64 +2,71 @@
 
 ## Open
 
-- Ideally all the test screenshots I have are full green provinence
-- Terms of Service, etc. -- lets not get sued or allow for any possibility of
-
-
-
-
-### Session:
-- Sliding the slider over the image is laggy, compared to sliding it not over the image
-- Info modal background / focus highlight looks off and is square and doesn't fit the area right.
-    - Should probably overlay that entire side of session
-
-
-
-
-
-
-
-
-### Low priority for first release:
 - Screenshots don't show up well against the same theme -- dark screenshot against dark mode bg + vice versa
-    - Could add drop shadow, or outline?
-
-
-### From VM
-
-1. Install steps ui need to scale to smaller device sizes better
-5. Entire app should scale better on small screens
+     - Could add drop shadow, or outline?
 
 
 
-### Misc:
+- Install steps ui need to scale to smaller device sizes better
+     - Entire app should scale better on small screens
 
 - Testing coverage and documentation
 - npm ci from e2e ? doesn't work?
 - test pdfium cargo test 
 
+- monochrome app icon next to name in top left of side bar (?)
+
+- note on poor quality extractions -- "try fixing the OCR on the left for better results"
+
+- proof read all text
+
+
+- Back and forward nav buttons
+- Full window tool bar (view, file, etc)
+
+- arrow keys on the table to move around cells: left and right always skip to next issue, not just to the left or right cell
+     - is this how it should behave?
+
+
+- toolbars should minimize tools to just icons when the width of that side is small
 
 
 
 ### Website:
-- Product preview -- make more like the actual app -- use gif of working app
-- Lies? Check hallucinations against actual app and ground it
+- Use actual screenshots
+- Signed installers
+
+
+
+---
+
+
+
+
+- more in depth speadsheet editor. to delete cells etc and merge left right etc
+
+
+- Right side of session as single page, chat menu type interface with the raw output and table pinned to the top
+    - this shows the history of extraction, if the user did any reextractions to show the old ones in a chronological ordering
+    - then also their chat messages to make edits, with the table before and after
+    - The "saved in app" stuff could go in the header for everything in the session
+
+
+
+- Eventually probably a vs code style work area that can be configured however the user chooses
+
+
+- Add a select multiple option to mark many cells as viewed at once
+
+- Move the info button for each side of the session to the header, with an option to collapse that pannel
 
 
 
 
 
 
-### What do I need for 1.0.0?
-- monochrome app icon next to name in top left of side bar 
-- proof read all text
-    - update app.tsx to match the text on the website to remove the em dash wording
-- note on poor quality extractions -- "try fixing the OCR on the left for better results"
-- re running set up(?)
-
-
-- the saved in app x button can be hidden and not visible
-
+version 2 and later:
+- chat with llm to edit the cells
 
 
 
@@ -137,6 +144,30 @@ Added excel export support
    - **Verified** on an RTX 2060 SUPER: generation 7.45 → 26.98 t/s, prompt eval 357 → 823
      t/s, image processing 2678 → 1358 ms, with the log header showing
      `effective_backend=cuda n_gpu_layers=999`.
+
+3. **"Format as table" failed again with "Failed to fetch" (Windows) / "Load failed" (macOS)
+   in packaged builds — a repeat of #1, on both platforms this time.** The mac-display
+   refactor ("images display on mac") changed the page-image `fileUrl` in
+   `useDocumentExtraction.ts` from a `convertFileSrc` `asset://` URL to a same-origin
+   `blob:` object URL (`URL.createObjectURL`), so the viewer's canvas no longer needed
+   `crossOrigin` against WKWebView's custom scheme. But that same `fileUrl` is also read by
+   `useLlamaChat.ts` (`fetch(fileUrl)` → base64 for the vision prompt), so "Format as table"
+   now does `fetch("blob:…")`. The CSP `img-src` already listed `blob:` (so the image still
+   *displayed*), but `connect-src` did **not** — and `fetch()` is governed by `connect-src`,
+   not `img-src` — so the read was blocked as a CSP violation, surfacing as a bare
+   `TypeError: Failed to fetch` / `Load failed`. Both platforms failed this time (vs #1's
+   Windows-only asset origin) because `blob:` is scheme-only and platform-independent. Worked
+   in dev because the packaged CSP isn't enforced against the Vite dev-server origin. The
+   model loaded fine first (its `http://127.0.0.1:*` calls were always allowed), so the
+   failure looked like a server problem but was the image read.
+   - **Resolved** by adding `blob:` to `connect-src` in both `csp` and `devCsp`
+     (`tauri.conf.json`), exactly as #1 added `asset:`. Grants no new capability — the blob is
+     created in-process from bytes already read via the fs plugin, and the webview can already
+     render those exact bytes via `<img>`.
+   - **Deeper fix (not yet done):** `useDocumentExtraction.ts` already `readFile`s the image
+     bytes; `useLlamaChat.ts` then re-`fetch`es the blob URL for the same bytes. Passing the
+     bytes/base64 directly would drop the round-trip and make this path immune to
+     `connect-src` regressions entirely.
 
 ### UI / Frontend
 
