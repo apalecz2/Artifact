@@ -36,7 +36,7 @@ export default class ErrorBoundary extends React.Component<Props, State> {
         if (!error) return this.props.children;
 
         return (
-            <div className="flex h-screen flex-col items-center justify-center gap-4 bg-surface p-8 text-center">
+            <div className="flex h-full flex-col items-center justify-center gap-4 bg-surface p-8 text-center">
                 <Icon name="error" size={40} className="text-error" />
                 <h1 className="font-headline-md text-headline-md text-on-surface">Something went wrong</h1>
                 <p className="max-w-md font-body-md text-body-md text-on-surface-variant">

@@ -44,7 +44,7 @@ export default function App() {
 
     if (isLoading) {
         return (
-            <div className="h-screen bg-surface flex items-center justify-center">
+            <div className="h-full bg-surface flex items-center justify-center">
                 <Icon name="progress_activity" size={32} className="text-on-surface-variant animate-spin" />
             </div>
         );

@@ -205,7 +205,7 @@ export default function Dashboard(): React.ReactElement {
     };
 
     return (
-        <main className="flex-1 p-margin-page flex flex-col items-center justify-center bg-surface relative min-h-screen overflow-hidden">
+        <main className="flex-1 p-margin-page flex flex-col items-center justify-center bg-surface relative min-h-full overflow-hidden">
             {/* Atmospheric background element */}
             <div className="absolute inset-0 pointer-events-none opacity-[0.03] bg-[radial-gradient(circle_at_center,var(--tw-gradient-stops))] from-primary via-transparent to-transparent"></div>
 
@@ -341,15 +341,15 @@ export default function Dashboard(): React.ReactElement {
                                 </h4>
                                 <ul className="space-y-2 ml-7">
                                     <li className="font-body-sm text-body-sm text-on-surface-variant flex gap-3">
-                                        <span className="text-primary flex-shrink-0 font-bold">•</span>
+                                        <span className="text-primary shrink-0 font-bold">•</span>
                                         <span>Use high-definition screenshots or PDFs. Avoid phone photos or blurry scans</span>
                                     </li>
                                     <li className="font-body-sm text-body-sm text-on-surface-variant flex gap-3">
-                                        <span className="text-primary flex-shrink-0 font-bold">•</span>
+                                        <span className="text-primary shrink-0 font-bold">•</span>
                                         <span>Ensure tables are well-lit with no glare or shadows</span>
                                     </li>
                                     <li className="font-body-sm text-body-sm text-on-surface-variant flex gap-3">
-                                        <span className="text-primary flex-shrink-0 font-bold">•</span>
+                                        <span className="text-primary shrink-0 font-bold">•</span>
                                         <span>Zoom in on the table before screenshotting </span>
                                     </li>
                                 </ul>
@@ -363,11 +363,11 @@ export default function Dashboard(): React.ReactElement {
                                 </h4>
                                 <ul className="space-y-2 ml-7">
                                     <li className="font-body-sm text-body-sm text-on-surface-variant flex gap-3">
-                                        <span className="text-primary flex-shrink-0 font-bold">•</span>
+                                        <span className="text-primary shrink-0 font-bold">•</span>
                                         <span>Crop images tightly around the table, and minimize empty space around it</span>
                                     </li>
                                     <li className="font-body-sm text-body-sm text-on-surface-variant flex gap-3">
-                                        <span className="text-primary flex-shrink-0 font-bold">•</span>
+                                        <span className="text-primary shrink-0 font-bold">•</span>
                                         <span>Ensure the header row is at the top of the image so Anchor knows what each column contains</span>
                                     </li>
                                 </ul>
@@ -381,11 +381,11 @@ export default function Dashboard(): React.ReactElement {
                                 </h4>
                                 <ul className="space-y-2 ml-7">
                                     <li className="font-body-sm text-body-sm text-on-surface-variant flex gap-3">
-                                        <span className="text-primary flex-shrink-0 font-bold">•</span>
+                                        <span className="text-primary shrink-0 font-bold">•</span>
                                         <span>Clear borders and cell separation help Anchor understand structure</span>
                                     </li>
                                     <li className="font-body-sm text-body-sm text-on-surface-variant flex gap-3">
-                                        <span className="text-primary flex-shrink-0 font-bold">•</span>
+                                        <span className="text-primary shrink-0 font-bold">•</span>
                                         <span>Handwritten tables work, but typed text extracts more reliably</span>
                                     </li>
                                 </ul>
@@ -399,7 +399,7 @@ export default function Dashboard(): React.ReactElement {
                                 </h4>
                                 <ul className="space-y-2 ml-7">
                                     <li className="font-body-sm text-body-sm text-on-surface-variant flex gap-3">
-                                        <span className="text-primary flex-shrink-0 font-bold">•</span>
+                                        <span className="text-primary shrink-0 font-bold">•</span>
                                         <span>Multi-page PDFs are supported; each page is processed</span>
                                     </li>
                                 </ul>

@@ -88,7 +88,9 @@ export default function AppLayout() {
     }, [location.pathname, navigate]);
 
     return (
-        <div className="bg-background text-on-surface font-body-md antialiased overflow-hidden flex h-screen w-full">
+        // `relative` is the sidebar's containing block: it positions against this
+        // layout rather than the viewport, so it starts below the title bar.
+        <div className="bg-background text-on-surface font-body-md antialiased overflow-hidden flex h-full w-full relative">
 
             <SideNavBar
                 collapsed={isSidebarCollapsed}

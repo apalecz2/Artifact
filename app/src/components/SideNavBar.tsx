@@ -82,7 +82,7 @@ const SideNavBar: FC<SideNavBarProps> = ({
             {/* Optional: Mobile overlay backdrop when expanded */}
             {!collapsed && (
                 <div
-                    className="fixed inset-0 z-30 bg-transparent transition-opacity md:hidden"
+                    className="absolute inset-0 z-30 bg-transparent transition-opacity md:hidden"
                     onClick={onToggleCollapse}
                     aria-hidden="true"
                 />
@@ -93,7 +93,7 @@ const SideNavBar: FC<SideNavBarProps> = ({
                 onClick={onToggleCollapse}
                 aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
                 className={`
-                        fixed top-4 z-50 flex h-10 w-10 items-center justify-center rounded-[10px] bg-surface-variant text-on-surface shadow-md transition-all duration-300 ease-out hover:bg-surface-container-high focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20
+                        absolute top-4 z-50 flex h-10 w-10 items-center justify-center rounded-[10px] bg-surface-variant text-on-surface shadow-md transition-all duration-300 ease-out hover:bg-surface-container-high focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20
                     ${collapsed
                         ? 'left-4 md:left-8 md:-translate-x-1/2' // Mobile: top-left. Desktop: centered over 5.5rem.
                         : 'left-60' // Expanded: 18rem width minus button width & padding
@@ -106,7 +106,7 @@ const SideNavBar: FC<SideNavBarProps> = ({
             {/* Sidebar Container */}
             <aside
                 className={`
-                    fixed top-0 left-0 z-40 flex h-screen flex-col border-r border-surface-variant bg-surface-container transition-all duration-300 ease-out
+                    absolute top-0 left-0 z-40 flex h-full flex-col border-r border-surface-variant bg-surface-container transition-all duration-300 ease-out
                     ${collapsed
                         ? '-translate-x-full md:translate-x-0 md:w-16' // Hidden on mobile, narrow on desktop
                         : 'translate-x-0 w-[18rem]' // Expanded state

@@ -54,7 +54,7 @@ export default function SetupWizard({ onComplete }: Props): React.ReactElement {
     };
 
     return (
-        <div className="h-screen bg-surface flex flex-col">
+        <div className="h-full bg-surface flex flex-col">
             {/* Step progress bar */}
             <div className="border-b border-outline-variant bg-surface-container px-8 py-4">
                 <div className="max-w-2xl mx-auto flex items-center gap-2">

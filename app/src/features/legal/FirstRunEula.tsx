@@ -46,7 +46,7 @@ export default function FirstRunEula({ onAccept }: Props): React.ReactElement {
     );
 
     return (
-        <div className="h-screen bg-surface flex flex-col">
+        <div className="h-full bg-surface flex flex-col">
             <div className="border-b border-outline-variant bg-surface-container px-8 py-5">
                 <div className="max-w-3xl mx-auto flex flex-col gap-1">
                     <h1 className="font-headline-lg text-headline-lg text-on-surface">Before you begin</h1>
