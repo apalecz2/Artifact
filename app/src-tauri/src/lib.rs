@@ -1,8 +1,11 @@
 mod export;
 mod hardware;
 mod llama;
-/// macOS only: see the module docs for why no other platform gets a menu bar.
-#[cfg(target_os = "macos")]
+/// Only *used* on macOS (see the module docs for why no other platform gets a
+/// menu bar), but compiled everywhere on purpose: `#[cfg]`-gating it to macOS
+/// meant a Windows `cargo clippy` couldn't see it, so mistakes in it reached CI
+/// unbuilt. `allow(dead_code)` covers the platforms that never call it.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod menu;
 mod ocr;
 mod paths;
