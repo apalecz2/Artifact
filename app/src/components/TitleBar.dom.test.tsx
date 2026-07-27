@@ -1,5 +1,5 @@
 ﻿import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render as rtlRender, screen, waitFor } from '@testing-library/react';
+import { render as rtlRender, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 
@@ -23,6 +23,7 @@ vi.mock('@tauri-apps/api/window', () => ({
 }));
 
 import TitleBar, {
+    appShortcut,
     historyPosition,
     historyShortcut,
     isMacPlatform,
@@ -81,6 +82,35 @@ describe('historyShortcut', () => {
             'forward',
         );
         expect(historyShortcut(event({ code: 'ArrowLeft', altKey: true }), true)).toBeNull();
+    });
+});
+
+describe('appShortcut', () => {
+    const event = (over: Partial<Parameters<typeof appShortcut>[0]>) => ({
+        code: 'KeyQ',
+        ctrlKey: false,
+        metaKey: false,
+        altKey: false,
+        shiftKey: false,
+        ...over,
+    });
+
+    it('maps the File/Edit accelerators behind the platform modifier', () => {
+        expect(appShortcut(event({ code: 'KeyN', ctrlKey: true }), false)).toBe('new');
+        expect(appShortcut(event({ code: 'KeyO', ctrlKey: true }), false)).toBe('open');
+        expect(appShortcut(event({ code: 'Comma', ctrlKey: true }), false)).toBe('settings');
+        expect(appShortcut(event({ code: 'KeyF', metaKey: true }), true)).toBe('find');
+    });
+
+    it('ignores the wrong modifier for the platform', () => {
+        expect(appShortcut(event({ code: 'KeyN', metaKey: true }), false)).toBeNull();
+        expect(appShortcut(event({ code: 'KeyN', ctrlKey: true }), true)).toBeNull();
+    });
+
+    it('leaves Shift and Alt combinations alone', () => {
+        expect(appShortcut(event({ code: 'KeyN', ctrlKey: true, shiftKey: true }), false)).toBeNull();
+        expect(appShortcut(event({ code: 'KeyN', ctrlKey: true, altKey: true }), false)).toBeNull();
+        expect(appShortcut(event({ code: 'KeyN' }), false)).toBeNull();
     });
 });
 
@@ -168,6 +198,70 @@ describe('<TitleBar />', () => {
         expect(close).toHaveBeenCalledOnce();
     });
 
+    it('routes the File menu items', async () => {
+        const user = userEvent.setup();
+        render();
+
+        await user.click(screen.getByRole('button', { name: /file/i }));
+        await user.click(screen.getByRole('menuitem', { name: /new extraction/i }));
+        expect(navigate).toHaveBeenCalledWith('/');
+
+        await user.click(screen.getByRole('button', { name: /file/i }));
+        await user.click(screen.getByRole('menuitem', { name: /settings/i }));
+        expect(navigate).toHaveBeenCalledWith('/settings');
+    });
+
+    it('closes the window from File ▸ Exit', async () => {
+        const user = userEvent.setup();
+        render();
+
+        await user.click(screen.getByRole('button', { name: /file/i }));
+        // The shortcut hint is part of each item's accessible name ("Exit Alt F4").
+        await user.click(screen.getByRole('menuitem', { name: /^exit/i }));
+
+        expect(close).toHaveBeenCalledOnce();
+    });
+
+    it('runs Edit ▸ Copy against the focused field', async () => {
+        const user = userEvent.setup();
+        const execCommand = vi.fn(() => true);
+        // jsdom has no execCommand at all, so define rather than spy.
+        Object.defineProperty(document, 'execCommand', {
+            value: execCommand,
+            configurable: true,
+            writable: true,
+        });
+        render();
+
+        await user.click(screen.getByRole('button', { name: /edit/i }));
+        await user.click(screen.getByRole('menuitem', { name: /^copy/i }));
+
+        expect(execCommand).toHaveBeenCalledWith('copy');
+    });
+
+    it('opens one menu at a time, switching on hover', async () => {
+        const user = userEvent.setup();
+        render();
+
+        await user.click(screen.getByRole('button', { name: /file/i }));
+        expect(screen.getByRole('menu', { name: 'File' })).toBeInTheDocument();
+
+        // Hovering a sibling title while a menu is open switches to it, the way
+        // a native menu bar does — and only one menu is ever mounted.
+        await user.hover(screen.getByRole('button', { name: /view/i }));
+        expect(screen.queryByRole('menu', { name: 'File' })).not.toBeInTheDocument();
+        expect(screen.getByRole('menu', { name: 'View' })).toBeInTheDocument();
+    });
+
+    it('does not open a menu on hover when none is open', async () => {
+        const user = userEvent.setup();
+        render();
+
+        await user.hover(screen.getByRole('button', { name: /edit/i }));
+
+        expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    });
+
     it('navigates back and forward through the router history', async () => {
         const user = userEvent.setup();
         // Two entries, sitting on the first: Back is spent, Forward is live.
@@ -198,6 +292,85 @@ describe('<TitleBar />', () => {
     // The full disabled/enabled matrix is covered by the `historyPosition` unit
     // tests above — jsdom shares one history across a file, so `history.length`
     // can't be pinned here.
+
+    it('draws no menus on macOS, where the system menu bar owns them', () => {
+        // `userAgent` is a prototype getter, so there is no own descriptor to put
+        // back — the override has to be deleted, or every later test in this file
+        // keeps thinking it is on a Mac.
+        Object.defineProperty(navigator, 'userAgent', {
+            value: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+            configurable: true,
+        });
+
+        try {
+            render();
+            for (const name of ['File', 'Edit', 'View', 'Menu']) {
+                expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
+            }
+            // Navigation stays — it has no counterpart in the system menu bar.
+            expect(screen.getByRole('button', { name: 'Back' })).toBeInTheDocument();
+        } finally {
+            delete (navigator as Navigator & { userAgent?: string }).userAgent;
+        }
+    });
+
+    it('lists the categories, not every item, under the hamburger', async () => {
+        const user = userEvent.setup();
+        render();
+
+        await user.click(screen.getByRole('button', { name: 'Menu' }));
+        const menu = screen.getByRole('menu', { name: 'Menu' });
+
+        expect(within(menu).getByRole('menuitem', { name: /^file/i })).toBeInTheDocument();
+        expect(within(menu).getByRole('menuitem', { name: /^edit/i })).toBeInTheDocument();
+        expect(within(menu).getByRole('menuitem', { name: /^view/i })).toBeInTheDocument();
+        // The items themselves stay behind their category until it is opened.
+        expect(
+            within(menu).queryByRole('menuitem', { name: /new extraction/i }),
+        ).not.toBeInTheDocument();
+    });
+
+    it('opens a category after the pointer rests on it', async () => {
+        const user = userEvent.setup();
+        render();
+
+        await user.click(screen.getByRole('button', { name: 'Menu' }));
+        await user.hover(screen.getByRole('menuitem', { name: /^file/i }));
+
+        // Deliberately delayed, so passing over a category on the way down the
+        // list doesn't flash its panel open.
+        expect(screen.queryByRole('menu', { name: 'File' })).not.toBeInTheDocument();
+        const submenu = await screen.findByRole('menu', { name: 'File' });
+        expect(within(submenu).getByRole('menuitem', { name: /new extraction/i })).toBeVisible();
+    });
+
+    it('opens a category immediately on click, and runs its items', async () => {
+        const user = userEvent.setup();
+        render();
+
+        await user.click(screen.getByRole('button', { name: 'Menu' }));
+        await user.click(screen.getByRole('menuitem', { name: /^view/i }));
+
+        const submenu = screen.getByRole('menu', { name: 'View' });
+        expect(within(submenu).getByText(/current zoom/i)).toBeInTheDocument();
+
+        await user.click(within(submenu).getByRole('menuitem', { name: /zoom in/i }));
+        expect(invoke).toHaveBeenCalledWith('set_app_zoom', { action: 'in' });
+        // Selecting an item dismisses the whole stack, not just the submenu.
+        expect(screen.queryByRole('menu', { name: 'Menu' })).not.toBeInTheDocument();
+    });
+
+    it('keeps the window buttons unshrinkable so a narrow bar cannot clip them', () => {
+        const { container } = render();
+
+        // The guarantee is structural: the controls never shrink, and the group
+        // that gives way instead is the one holding no dropdowns.
+        const controls = container.querySelector('header > div:last-of-type');
+        expect(controls?.className).toContain('shrink-0');
+        expect(container.querySelector('header > div:first-of-type')?.className).toContain(
+            'overflow-hidden',
+        );
+    });
 
     it('marks the bar as a drag region so the frameless window can be moved', () => {
         const { container } = render();
