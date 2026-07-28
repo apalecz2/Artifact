@@ -1,294 +1,405 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router';
-import Icon from '../components/Icon';
+import { invoke } from '@tauri-apps/api/core';
 import { openUrl } from '@tauri-apps/plugin-opener';
+import Icon from '../components/Icon';
+import PageContainer from '../components/PageContainer';
+import Section from '../components/PageSection';
+import { copyTextToClipboard } from '../utils/clipboard';
+import { hasSetting, readSetting } from '../lib/settings';
+import {
+    buildDiagnostics,
+    formatDiagnostics,
+    type DiagnosticField,
+    type InstallInfo,
+} from '../features/about/installInfo';
+import { backendWarning } from '../features/setup/backend';
+import type { Backend, HardwareInfo, SetupPaths } from '../features/setup/types';
 
-function FeatureCard({ icon, title, body }: { icon: string; title: string; body: string }) {
-    return (
-        <div className="rounded-[10px] border border-outline-variant bg-surface-container p-6 flex flex-col gap-3">
-            <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                <Icon name={icon} size={20} weight={300} className="text-primary" />
+/* This page is deliberately *not* a second copy of the marketing site. Anything
+   that argues Anchor is worth installing belongs on the website; the reader here
+   already installed it. What lives here is what the website cannot know (which
+   build is running, on what hardware, from where) and what the app itself cannot
+   explain in situ (how to read the confidence heatmap). Product copy that was
+   duplicated from the site drifted out of date and shipped wrong claims, so the
+   rule is: if the website could say it, it doesn't go here. */
+
+const LINKS = {
+    github: 'https://github.com/apalecz2/anchor',
+    issues: 'https://github.com/apalecz2/anchor/issues',
+    email: 'aiden.paleczny@gmail.com',
+};
+
+/** Open an external target through the OS, never in the webview. */
+function external(href: string): (e: React.MouseEvent) => void {
+    return (e) => {
+        e.preventDefault();
+        void openUrl(href);
+    };
+}
+
+/* ── This install ─────────────────────────────────────────────────────────── */
+
+function DiagnosticsPanel(): React.ReactElement {
+    const [fields, setFields] = useState<DiagnosticField[] | null>(null);
+    const [mismatch, setMismatch] = useState<string | null>(null);
+    const [dataDir, setDataDir] = useState<string | null>(null);
+    const [copied, setCopied] = useState<'idle' | 'ok' | 'fail'>('idle');
+
+    useEffect(() => {
+        let cancelled = false;
+
+        // Every probe is independent and every one is allowed to fail: a machine
+        // that can't report its GPU should still show its version and paths,
+        // since a partly-filled report still beats no report.
+        const settle = <T,>(p: Promise<T>): Promise<T | null> => p.then((v) => v).catch(() => null);
+
+        void Promise.all([
+            settle(import('@tauri-apps/api/app').then(({ getVersion }) => getVersion())),
+            settle(invoke<InstallInfo>('get_install_info')),
+            settle(invoke<HardwareInfo>('detect_hardware')),
+            settle(invoke<SetupPaths>('get_setup_paths')),
+        ]).then(([version, install, hardware, paths]) => {
+            if (cancelled) return;
+
+            // localStorage is the live value (useSetupCheck heals it from disk on
+            // launch); the AppData copy is the fallback for an origin that never
+            // ran the wizard.
+            const backend: Backend | null = hasSetting('hardwareBackend')
+                ? readSetting('hardwareBackend')
+                : paths?.hardware_backend ?? null;
+            const modelPath = readSetting('modelPath') || paths?.model_path || null;
+
+            setFields(buildDiagnostics({ version, install, hardware, backend, modelPath }));
+            setDataDir(install?.data_dir ?? null);
+            // Same check the wizard runs before installing, re-run against the
+            // machine as it is now: the installed build is fixed at setup, but
+            // the hardware under it can change afterwards.
+            setMismatch(backend && hardware ? backendWarning(backend, hardware) : null);
+        });
+
+        return () => { cancelled = true; };
+    }, []);
+
+    const onCopy = async () => {
+        if (!fields) return;
+        setCopied(await copyTextToClipboard(formatDiagnostics(fields)) ? 'ok' : 'fail');
+        setTimeout(() => setCopied('idle'), 2000);
+    };
+
+    const onReveal = () => {
+        if (!dataDir) return;
+        void import('@tauri-apps/plugin-opener')
+            .then(({ revealItemInDir }) => revealItemInDir(dataDir))
+            .catch(() => {});
+    };
+
+    if (!fields) {
+        return (
+            <div className="rounded-[10px] border border-outline-variant bg-surface-container px-5 py-4">
+                <p className="font-body-md text-body-md text-on-surface-variant">Reading system information…</p>
             </div>
-            <h3 className="font-headline-md text-headline-md text-on-surface">{title}</h3>
-            <p className="font-body-md text-body-md text-on-surface-variant leading-relaxed">{body}</p>
+        );
+    }
+
+    return (
+        <div className="flex flex-col gap-3">
+            <div className="rounded-[10px] border border-outline-variant bg-surface-container divide-y divide-outline-variant">
+                {fields.map(({ label, value, mono }) => (
+                    <div key={label} className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-4 px-5 py-3">
+                        <p className="font-label-md text-label-md text-on-surface-variant sm:w-36 sm:shrink-0 sm:mt-0.5">
+                            {label}
+                        </p>
+                        <p
+                            className={`min-w-0 flex-1 text-on-surface ${
+                                mono
+                                    ? 'font-mono-data text-body-sm wrap-break-word'
+                                    : 'font-body-md text-body-md font-medium'
+                            }`}
+                        >
+                            {value}
+                        </p>
+                    </div>
+                ))}
+            </div>
+
+            {mismatch && (
+                <div className="flex items-start gap-3 rounded-[10px] border border-outline-variant bg-surface-container-high px-5 py-4">
+                    <Icon name="warning" size={20} weight={300} className="text-error shrink-0 mt-0.5" />
+                    <div className="min-w-0">
+                        <p className="font-body-sm text-body-sm text-on-surface-variant">{mismatch}</p>
+                        <p className="font-body-sm text-body-sm text-on-surface-variant mt-1">
+                            <Link to="/settings" className="text-primary underline underline-offset-2">Re-run setup</Link>
+                            {' '}to install a build that matches this machine.
+                        </p>
+                    </div>
+                </div>
+            )}
+
+            <div className="flex flex-wrap items-center gap-3">
+                <button
+                    type="button"
+                    onClick={onCopy}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:bg-primary/90 transition-colors"
+                >
+                    <Icon name={copied === 'ok' ? 'check' : 'content_copy'} size={16} />
+                    {copied === 'ok' ? 'Copied' : 'Copy details'}
+                </button>
+                {dataDir && (
+                    <button
+                        type="button"
+                        onClick={onReveal}
+                        className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-outline-variant bg-surface-container hover:bg-surface-container-high font-label-md text-label-md text-on-surface transition-colors"
+                    >
+                        <Icon name="folder_open" size={16} />
+                        Open data folder
+                    </button>
+                )}
+                {copied === 'fail' && (
+                    <span className="font-body-sm text-body-sm text-on-surface-variant">
+                        Couldn't copy. Select the text above instead.
+                    </span>
+                )}
+            </div>
+            <p className="font-body-sm text-body-sm text-on-surface-variant px-1">
+                Include these details when reporting a problem. They stay on your device until you paste them
+                somewhere yourself.
+            </p>
         </div>
     );
 }
 
-function StepRow({ number, title, body }: { number: string; title: string; body: string }) {
+/* ── Reading the results ──────────────────────────────────────────────────── */
+
+/* Swatch classes are copied from ProvenanceTable's TRUST_BG/TRUST_TEXT rather
+   than re-derived, so the legend can't describe a palette the table doesn't
+   use. If those change, change these. */
+const LEGEND: { swatch: string; label: string; body: string }[] = [
+    {
+        swatch: 'bg-green-100 dark:bg-green-500/15 text-green-900 dark:text-green-200',
+        label: 'High confidence',
+        body: 'The AI and the OCR text agree, and both read it cleanly. Spot-check only.',
+    },
+    {
+        swatch: 'bg-amber-100 dark:bg-amber-500/15 text-amber-900 dark:text-amber-200',
+        label: 'Medium confidence',
+        body: 'Readable, but something was less certain than usual. Worth a glance.',
+    },
+    {
+        swatch: 'bg-red-100 dark:bg-red-500/15 text-red-900 dark:text-red-200',
+        label: 'Low confidence',
+        body: 'The AI and OCR disagree, or the page was hard to read here. Check this one.',
+    },
+    {
+        swatch: 'bg-surface-variant/60 text-on-surface-variant',
+        label: 'No OCR match',
+        body: 'Read from the image only, with no OCR word to confirm it against.',
+    },
+];
+
+const BADGES: { glyph: string; body: string }[] = [
+    { glyph: '✓', body: 'You checked (or corrected) this cell yourself. Overrides every warning below.' },
+    { glyph: '?', body: 'No matching OCR word, so the value came from the image alone.' },
+    { glyph: '≈', body: 'Approximate match: the value differs slightly from the OCR text, often a single misread character.' },
+    { glyph: '!', body: 'Low confidence, or a blank cell where unextracted text was found on the page.' },
+];
+
+function ReadingResults(): React.ReactElement {
     return (
-        <div className="flex gap-4 items-start">
-            <div className="w-8 h-8 shrink-0 rounded-full bg-primary flex items-center justify-center mt-0.5">
-                <span className="font-label-md text-label-md text-on-primary font-semibold">{number}</span>
+        <div className="flex flex-col gap-4">
+            <div className="rounded-[10px] border border-outline-variant bg-surface-container divide-y divide-outline-variant">
+                {LEGEND.map(({ swatch, label, body }) => (
+                    <div key={label} className="flex items-start gap-4 px-5 py-4">
+                        <span className={`shrink-0 rounded-sm border border-outline-variant px-2.5 py-1 font-mono-data text-body-sm ${swatch}`}>
+                            123
+                        </span>
+                        <div className="min-w-0">
+                            <p className="font-body-md text-body-md text-on-surface font-medium">{label}</p>
+                            <p className="font-body-sm text-body-sm text-on-surface-variant">{body}</p>
+                        </div>
+                    </div>
+                ))}
             </div>
-            <div>
-                <p className="font-body-lg text-body-lg text-on-surface font-medium">{title}</p>
-                <p className="font-body-md text-body-md text-on-surface-variant mt-0.5">{body}</p>
+
+            <div className="rounded-[10px] border border-outline-variant bg-surface-container divide-y divide-outline-variant">
+                {BADGES.map(({ glyph, body }) => (
+                    <div key={glyph} className="flex items-start gap-4 px-5 py-3">
+                        <span className="inline-flex shrink-0 h-6 w-6 items-center justify-center rounded-full bg-surface-variant text-body-sm font-medium text-on-surface-variant">
+                            {glyph}
+                        </span>
+                        <p className="font-body-sm text-body-sm text-on-surface-variant mt-0.5">{body}</p>
+                    </div>
+                ))}
             </div>
+
+            <p className="font-body-md text-body-md text-on-surface-variant">
+                Click any cell to highlight the exact spot on the page it was read from. Click again to edit it.
+                An edited or confirmed cell is marked verified and stops being flagged.
+            </p>
         </div>
     );
 }
 
-function FormatBadge({ icon, label }: { icon: string; label: string }) {
+/* ── Troubleshooting ──────────────────────────────────────────────────────── */
+
+function Troubleshooting(): React.ReactElement {
+    const items: { icon: string; title: string; body: React.ReactNode }[] = [
+        {
+            icon: 'speed',
+            title: 'Extraction is slow',
+            body: (
+                <>
+                    Compare the <span className="text-on-surface">Installed build</span> and{' '}
+                    <span className="text-on-surface">Graphics</span> rows above. A GPU build only accelerates the
+                    card it was made for. On anything else it falls back to CPU speed.{' '}
+                    <Link to="/settings" className="text-primary underline underline-offset-2">Re-run setup</Link>{' '}
+                    to switch builds.
+                </>
+            ),
+        },
+        {
+            icon: 'build',
+            title: 'Something is missing or setup failed',
+            body: (
+                <>
+                    <Link to="/settings" className="text-primary underline underline-offset-2">Re-run the setup wizard</Link>.
+                    It re-checks every component and reinstalls only what's missing or corrupt, so it's safe to run any time.
+                </>
+            ),
+        },
+        {
+            icon: 'wifi_off',
+            title: 'No internet',
+            body: 'Only first-run setup needs a connection. Once the engine and model are installed, extraction runs fully offline.',
+        },
+        {
+            icon: 'hard_drive',
+            title: 'Reclaiming disk space',
+            body: (
+                <>
+                    Sessions and cached page images live in the data folder above.{' '}
+                    <Link to="/settings" className="text-primary underline underline-offset-2">Delete all sessions</Link>{' '}
+                    clears them without touching your original files.
+                </>
+            ),
+        },
+    ];
+
     return (
-        <span className="flex items-center gap-2 px-3 py-1.5 rounded-[10px] border border-outline-variant bg-surface-container font-label-md text-label-md text-on-surface-variant">
-            <Icon name={icon} size={14} />
-            {label}
-        </span>
+        <div className="rounded-[10px] border border-outline-variant bg-surface-container divide-y divide-outline-variant">
+            {items.map(({ icon, title, body }) => (
+                <div key={title} className="flex items-start gap-4 px-5 py-4">
+                    <Icon name={icon} size={20} weight={300} className="text-primary shrink-0 mt-0.5" />
+                    <div className="min-w-0">
+                        <p className="font-body-md text-body-md text-on-surface font-medium">{title}</p>
+                        <p className="font-body-sm text-body-sm text-on-surface-variant mt-0.5">{body}</p>
+                    </div>
+                </div>
+            ))}
+        </div>
     );
 }
+
+/* ── Page ─────────────────────────────────────────────────────────────────── */
 
 export default function About(): React.ReactElement {
     return (
-        <main className="absolute inset-0 overflow-y-auto bg-surface">
-            {/* Atmospheric background — matches Dashboard */}
-            <div className="absolute inset-0 pointer-events-none opacity-[0.03] bg-[radial-gradient(circle_at_top,var(--tw-gradient-stops))] from-primary via-transparent to-transparent" />
+        <PageContainer
+            title="About"
+            description="Anchor turns tables in scanned documents and photos into spreadsheets, entirely on this machine. Nothing you open is uploaded anywhere."
+        >
 
-            <div className="relative z-10 max-w-4xl mx-auto px-[--spacing-margin-page] py-16 flex flex-col gap-20">
+            {/* ── This install ── */}
+            <Section
+                title="This install"
+                description="What's running on this machine, and where Anchor keeps its files."
+            >
+                <DiagnosticsPanel />
+            </Section>
 
-                {/* ── Hero ── */}
-                <section className="flex flex-col gap-6 max-w-2xl">
-                    <div className="flex items-center gap-2">
-                        <span className="px-3 py-1 rounded-full bg-primary/10 font-label-md text-label-md text-primary border border-primary/20">
-                            100% Local · Zero API Costs
-                        </span>
-                    </div>
-                    <h1 className="font-display-lg text-display-lg text-primary tracking-tight">
-                        Your documents.<br />Your data.<br />Your machine.
-                    </h1>
-                    <p className="font-body-lg text-body-lg text-on-surface-variant max-w-xl">
-                        Anchor transforms unstructured documents (handwritten notes, image-based tables, scanned
-                        PDFs) into clean, structured data. Everything runs locally on your hardware. Nothing leaves
-                        your machine.
-                    </p>
-                </section>
+            {/* ── Reading the results ── */}
+            <Section
+                title="Reading the results"
+                description="Every extracted cell is colored by how confident Anchor is in it, so you can check the handful of shaky values instead of proofreading the whole table."
+            >
+                <ReadingResults />
+            </Section>
 
-                {/* ── The Problem ── */}
-                <section className="flex flex-col gap-8">
-                    <div>
-                        <h2 className="font-headline-lg text-headline-lg text-on-surface mb-3">The problem with document data</h2>
-                        <p className="font-body-lg text-body-lg text-on-surface-variant max-w-2xl">
-                            Most valuable data is trapped in formats machines can't read: PDFs rendered as images,
-                            tables photographed on phones, handwritten records never digitized. Getting that data out
-                            today means one of two things: expensive cloud APIs that expose your most sensitive
-                            information, or hours of manual re-entry riddled with human error.
-                        </p>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                        {[
-                            { icon: 'cloud_off', label: 'Cloud APIs expose sensitive records to third-party servers' },
-                            { icon: 'schedule', label: 'Manual data entry is slow, costly, and error-prone' },
-                            { icon: 'search_off', label: 'Verification is tedious, with no link between source and output' },
-                        ].map(({ icon, label }) => (
-                            <div key={icon} className="flex gap-3 items-start rounded-[10px] border border-outline-variant bg-surface-container p-4">
-                                <Icon name={icon} size={18} weight={300} className="text-on-surface-variant shrink-0 mt-0.5" />
-                                <p className="font-body-md text-body-md text-on-surface-variant">{label}</p>
-                            </div>
-                        ))}
-                    </div>
-                </section>
+            {/* ── Troubleshooting ── */}
+            <Section title="If something goes wrong">
+                <Troubleshooting />
+            </Section>
 
-                {/* ── Core Capabilities ── */}
-                <section className="flex flex-col gap-8">
-                    <h2 className="font-headline-lg text-headline-lg text-on-surface">What Anchor does</h2>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <FeatureCard
-                            icon="lock"
-                            title="Complete privacy"
-                            body="All OCR, AI inference, and extraction runs on your CPU or GPU. No telemetry, no cloud calls, no model APIs. Sensitive medical, legal, and financial records never leave your machine."
-                        />
-                        <FeatureCard
-                            icon="visibility"
-                            title="Human-in-the-loop verification"
-                            body="A split-screen interface shows the source document alongside the extracted table. Click any cell to highlight the exact region of the document it was read from. Cells with no matching OCR source are flagged so you know what to check."
-                        />
-                        <FeatureCard
-                            icon="thermostat"
-                            title="Per-cell confidence scoring"
-                            body="Every extracted cell is color-coded green, yellow, or red based on a blend of AI token log-probability and Tesseract OCR word confidence. The minimum token probability is tracked separately to catch a single shaky digit hiding inside an otherwise confident number."
-                        />
-                        <FeatureCard
-                            icon="account_tree"
-                            title="Deterministic source matching"
-                            body="A code-based reading-order walk links each extracted cell back to the OCR words it came from, with no extra model tokens and no latency. A fuzzy second pass recovers single-character OCR misreads and flags them as approximate so you know exactly what to double-check."
-                        />
-                    </div>
-                </section>
-
-                {/* ── How It Works ── */}
-                <section className="flex flex-col gap-8">
-                    <div>
-                        <h2 className="font-headline-lg text-headline-lg text-on-surface mb-2">How it works</h2>
-                        <p className="font-body-md text-body-md text-on-surface-variant">Nine steps from raw file to verified structured data.</p>
-                    </div>
-                    <div className="flex flex-col gap-5">
-                        <StepRow
-                            number="1"
-                            title="Ingest & validate"
-                            body="Drop a PDF, PNG, or JPEG. Anchor validates the format and checks whether the document contains extractable content."
-                        />
-                        <StepRow
-                            number="2"
-                            title="OCR"
-                            body="Files are rendered to high-resolution images (PDFs at 2000 px wide via PDFium; direct image uploads as-is) and then passed through Tesseract for word-level text and bounding boxes."
-                        />
-                        <StepRow
-                            number="3"
-                            title="OCR image preprocessing"
-                            body="A separate copy is prepared just for Tesseract: converted to grayscale and, for small image uploads, upscaled with Lanczos resampling. Binarization is left to Tesseract's own thresholding, which handles thin antialiased glyphs better than a hard threshold. The original image is untouched and is what the AI and the UI see. When a copy is upscaled, every returned bounding box is divided back by the scale factor so click-to-highlight boxes always land on the right spot in the original image."
-                        />
-                        <StepRow
-                            number="4"
-                            title="Context assembly"
-                            body="OCR words are sanitized and sorted into reading order. Two views are built from the same word array: spatially-aligned text that preserves column layout for the AI, and an indexed word list with bounding boxes for provenance matching."
-                        />
-                        <StepRow
-                            number="5"
-                            title="Stage 1: AI extraction"
-                            body="The local vision-language model reads the document image alongside the spatially-arranged OCR text and emits a clean CSV table. It runs with greedy decoding and no constraints: the settings that produce reliably correct output. Token log-probabilities are captured during streaming."
-                        />
-                        <StepRow
-                            number="6"
-                            title="Stage 2: Provenance matching"
-                            body="A deterministic algorithm walks the CSV cells and OCR words in parallel, in the same reading order. Each cell is linked to the OCR word it came from. Even when dozens of cells share identical values, sequence position disambiguates them. No model tokens, no latency."
-                        />
-                        <StepRow
-                            number="7"
-                            title="Confidence scoring"
-                            body="Each cell receives three signals: AI token log-probability (mean and minimum), Tesseract OCR word confidence, and source agreement. These are blended into a trust level (high, medium, or low) that drives the color heatmap in the output table."
-                        />
-                        <StepRow
-                            number="8"
-                            title="Human verification"
-                            body="The output table color-codes every cell by trust level. Click any cell to highlight its exact source region on the document. Cells the model read from the image with no matching OCR word are marked with an unverified-source badge, and cells that only approximately match the OCR (e.g. a single misread character) are marked with an approximate-match badge at a lowered confidence."
-                        />
-                        <StepRow
-                            number="9"
-                            title="Export"
-                            body="Save verified data as CSV, HTML, Markdown, or plain text. The model is unloaded from RAM after the job completes to free resources."
-                        />
-                    </div>
-                </section>
-
-                {/* ── Technical Stack ── */}
-                <section className="flex flex-col gap-6">
-                    <h2 className="font-headline-lg text-headline-lg text-on-surface">Under the hood</h2>
-                    <div className="rounded-[10px] border border-outline-variant bg-surface-container divide-y divide-outline-variant">
-                        {[
-                            { label: 'Interface', value: 'React + TypeScript', note: 'Type-safe, high-interactivity UI' },
-                            { label: 'Framework', value: 'Tauri', note: 'Lightweight native desktop shell with lower overhead than Electron' },
-                            { label: 'AI runtime', value: 'llama.cpp server', note: 'Model-agnostic inference; swap models without rebuilding' },
-                            { label: 'Vision model', value: 'Qwen3.5-4b (multimodal)', note: 'Handles vision tasks and OCR validation locally' },
-                            { label: 'OCR engine', value: 'Tesseract', note: 'Word-level bounding boxes and per-character confidence' },
-                            { label: 'Image preprocessing', value: 'image (Rust)', note: 'Grayscale and Lanczos upscaling before OCR; Tesseract handles binarization internally, with no system OpenCV dependency' },
-                            { label: 'PDF rendering', value: 'PDFium', note: 'High-fidelity 2000px renders from native PDF pages' },
-                            { label: 'Storage', value: 'SQLite (local)', note: 'Session and file metadata stored entirely on-device' },
-                        ].map(({ label, value, note }) => (
-                            <div key={label} className="flex items-start gap-4 px-5 py-4">
-                                <p className="font-label-md text-label-md text-on-surface-variant w-32 shrink-0 mt-0.5">{label}</p>
-                                <div>
-                                    <p className="font-body-md text-body-md text-on-surface font-medium">{value}</p>
-                                    <p className="font-body-sm text-body-sm text-on-surface-variant">{note}</p>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </section>
-
-                {/* ── Supported Formats ── */}
-                <section className="flex flex-col gap-6">
-                    <h2 className="font-headline-lg text-headline-lg text-on-surface">Supported formats</h2>
-                    <div className="flex flex-col gap-4">
-                        <div>
-                            <p className="font-label-md text-label-md text-on-surface-variant mb-3 uppercase tracking-wider">Input</p>
-                            <div className="flex flex-wrap gap-2">
-                                <FormatBadge icon="picture_as_pdf" label="PDF" />
-                                <FormatBadge icon="image" label="PNG" />
-                                <FormatBadge icon="image" label="JPEG" />
-                            </div>
-                        </div>
-                        <div>
-                            <p className="font-label-md text-label-md text-on-surface-variant mb-3 uppercase tracking-wider">Output</p>
-                            <div className="flex flex-wrap gap-2">
-                                <FormatBadge icon="table_chart" label="CSV" />
-                                <FormatBadge icon="code" label="HTML" />
-                                <FormatBadge icon="notes" label="Markdown" />
-                                <FormatBadge icon="article" label="Plain text" />
-                            </div>
-                        </div>
-                    </div>
-                </section>
-
-                {/* ── Hardware section ── */}
-                <section className="flex flex-col gap-6 pb-4">
-                    <h2 className="font-headline-lg text-headline-lg text-on-surface">Adapts to your hardware</h2>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div className="rounded-[10px] border border-outline-variant bg-surface-container p-6 flex flex-col gap-3">
-                            <p className="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">GPU acceleration</p>
-                            <h3 className="font-headline-md text-headline-md text-on-surface">Automatic detection</h3>
-                            <p className="font-body-md text-body-md text-on-surface-variant">
-                                On first run, Anchor detects your graphics card and downloads the matching
-                                accelerated build: NVIDIA (CUDA), AMD (ROCm), or Apple Silicon (Metal).
-                            </p>
-                        </div>
-                        <div className="rounded-[10px] border border-outline-variant bg-surface-container p-6 flex flex-col gap-3">
-                            <p className="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">CPU fallback</p>
-                            <h3 className="font-headline-md text-headline-md text-on-surface">Runs on any machine</h3>
-                            <p className="font-body-md text-body-md text-on-surface-variant">
-                                No GPU required: Anchor runs the full pipeline on your CPU, and a GPU build
-                                automatically falls back to CPU if acceleration can't initialize.
-                            </p>
-                        </div>
-                    </div>
-                    <p className="font-body-md text-body-md text-on-surface-variant">
-                        The AI model and platform binaries (~3.5 GB) are downloaded once on first launch and SHA-256 verified.
-                    </p>
-                </section>
-
-                {/* ── AI-output notice ── */}
-                <section className="rounded-[10px] border border-outline-variant bg-surface-container p-6 flex gap-4">
-                    <Icon name="auto_awesome" size={20} weight={300} className="text-primary shrink-0 mt-0.5" />
-                    <p className="font-body-md text-body-md text-on-surface-variant">
-                        Anchor extracts tables using a local generative-AI model. AI output can be inaccurate or
-                        incomplete — always verify extracted data against the source document before relying on it.
-                        The confidence heatmap and click-to-source highlighting are aids to that review, not a
-                        guarantee of accuracy.
-                    </p>
-                </section>
-
-                {/* ── Legal ── */}
-                <section className="flex flex-col gap-6 pb-4">
-                    <h2 className="font-headline-lg text-headline-lg text-on-surface">Legal</h2>
-                    <div className="rounded-[10px] border border-outline-variant bg-surface-container divide-y divide-outline-variant">
-                        {[
-                            { to: '/legal/privacy', icon: 'shield', label: 'Privacy Policy', note: 'What Anchor processes and where (everything stays on your device).' },
-                            { to: '/legal/terms', icon: 'gavel', label: 'Terms of Use & EULA', note: 'License to use, AI-output disclaimer, and warranty terms.' },
-                            { to: '/legal/notices', icon: 'balance', label: 'Licenses & Notices', note: 'Open-source components and the AI model Anchor is built with.' },
-                        ].map(({ to, icon, label, note }) => (
-                            <Link key={to} to={to} className="flex items-center gap-4 px-5 py-4 hover:bg-surface-container-high transition-colors no-underline">
-                                <Icon name={icon} size={20} weight={300} className="text-primary shrink-0" />
-                                <div className="flex-1 min-w-0">
-                                    <p className="font-body-md text-body-md text-on-surface font-medium">{label}</p>
-                                    <p className="font-body-sm text-body-sm text-on-surface-variant">{note}</p>
-                                </div>
-                                <Icon name="chevron_right" size={20} className="text-on-surface-variant shrink-0" />
-                            </Link>
-                        ))}
-                    </div>
-                    <p className="font-body-sm text-body-sm text-on-surface-variant">
-                        Anchor · Copyright © 2026 Aiden Paleczny · Licensed under the Elastic License 2.0.
-                        Security, copyright, or AI-output concerns:{' '}
+            {/* ── Support ── */}
+            <Section
+                title="Support"
+                description="Bug reports and questions are welcome. Including the details above makes them much faster to answer."
+            >
+                <div className="rounded-[10px] border border-outline-variant bg-surface-container divide-y divide-outline-variant">
+                    {[
+                        { icon: 'bug_report', label: 'Report an issue', note: 'GitHub Issues', href: LINKS.issues },
+                        { icon: 'code', label: 'Source code', note: LINKS.github.replace('https://', ''), href: LINKS.github },
+                        { icon: 'mail', label: 'Email', note: LINKS.email, href: `mailto:${LINKS.email}` },
+                    ].map(({ icon, label, note, href }) => (
                         <a
-                            href="mailto:aiden.paleczny@gmail.com"
-                            onClick={(e) => { e.preventDefault(); void openUrl('mailto:aiden.paleczny@gmail.com'); }}
-                            className="text-primary underline underline-offset-2 cursor-pointer"
+                            key={label}
+                            href={href}
+                            onClick={external(href)}
+                            className="flex items-center gap-4 px-5 py-4 hover:bg-surface-container-high transition-colors no-underline"
                         >
-                            aiden.paleczny@gmail.com
-                        </a>.
-                    </p>
-                </section>
+                            <Icon name={icon} size={20} weight={300} className="text-primary shrink-0" />
+                            <div className="flex-1 min-w-0">
+                                <p className="font-body-md text-body-md text-on-surface font-medium">{label}</p>
+                                <p className="font-body-sm text-body-sm text-on-surface-variant wrap-break-word">{note}</p>
+                            </div>
+                            <Icon name="open_in_new" size={18} className="text-on-surface-variant shrink-0" />
+                        </a>
+                    ))}
+                </div>
+            </Section>
 
-            </div>
-        </main>
+            {/* ── AI-output notice ── */}
+            <section className="rounded-[10px] border border-outline-variant bg-surface-container p-5 sm:p-6 flex gap-4">
+                <Icon name="auto_awesome" size={20} weight={300} className="text-primary shrink-0 mt-0.5" />
+                <p className="font-body-md text-body-md text-on-surface-variant">
+                    Anchor extracts tables using a local generative-AI model. AI output can be inaccurate or
+                    incomplete, so always verify extracted data against the source document before relying on it.
+                    The confidence heatmap and click-to-source highlighting are aids to that review, not a
+                    guarantee of accuracy.
+                </p>
+            </section>
+
+            {/* ── Legal ── */}
+            <Section title="Legal">
+                <div className="rounded-[10px] border border-outline-variant bg-surface-container divide-y divide-outline-variant">
+                    {[
+                        { to: '/legal/privacy', icon: 'shield', label: 'Privacy Policy', note: 'What Anchor processes and where (everything stays on your device).' },
+                        { to: '/legal/terms', icon: 'gavel', label: 'Terms of Use & EULA', note: 'License to use, AI-output disclaimer, and warranty terms.' },
+                        { to: '/legal/notices', icon: 'balance', label: 'Licenses & Notices', note: 'Open-source components and the AI model Anchor is built with.' },
+                    ].map(({ to, icon, label, note }) => (
+                        <Link key={to} to={to} className="flex items-center gap-4 px-5 py-4 hover:bg-surface-container-high transition-colors no-underline">
+                            <Icon name={icon} size={20} weight={300} className="text-primary shrink-0" />
+                            <div className="flex-1 min-w-0">
+                                <p className="font-body-md text-body-md text-on-surface font-medium">{label}</p>
+                                <p className="font-body-sm text-body-sm text-on-surface-variant">{note}</p>
+                            </div>
+                            <Icon name="chevron_right" size={20} className="text-on-surface-variant shrink-0" />
+                        </Link>
+                    ))}
+                </div>
+                <p className="font-body-sm text-body-sm text-on-surface-variant">
+                    Anchor · Copyright © 2026 Aiden Paleczny · Licensed under the Elastic License 2.0.
+                    Security, copyright, or AI-output concerns:{' '}
+                    <a
+                        href={`mailto:${LINKS.email}`}
+                        onClick={external(`mailto:${LINKS.email}`)}
+                        className="text-primary underline underline-offset-2 cursor-pointer wrap-break-word"
+                    >
+                        {LINKS.email}
+                    </a>.
+                </p>
+            </Section>
+
+        </PageContainer>
     );
 }

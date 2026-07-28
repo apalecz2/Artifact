@@ -83,7 +83,9 @@ fn recommend_backend(vendor: Option<&str>, vram_mb: Option<u64>) -> String {
     "cpu".into()
 }
 
-fn current_os() -> &'static str {
+/// Canonical platform string, shared with `install.rs` so the two commands can
+/// never disagree about what OS they're running on.
+pub fn current_os() -> &'static str {
     if cfg!(target_os = "windows") {
         "windows"
     } else if cfg!(target_os = "macos") {

@@ -25,7 +25,7 @@ export function backendWarning(backend: Backend, hw: HardwareInfo): string | nul
     switch (backend) {
         case 'cuda':
             if (vendor !== 'NVIDIA') {
-                return `No NVIDIA GPU was detected (found ${hw.gpu_name ?? 'no GPU'}). The CUDA build needs an NVIDIA card to accelerate — it will fall back to CPU speed.`;
+                return `No NVIDIA GPU was detected (found ${hw.gpu_name ?? 'no GPU'}). The CUDA build needs an NVIDIA card to accelerate, so it will fall back to CPU speed.`;
             }
             if (hw.vram_mb != null && hw.vram_mb < 4096) {
                 return `Your GPU reports ${(hw.vram_mb / 1024).toFixed(1)} GB of VRAM, below the 4 GB recommended for CUDA. It may run out of memory on larger documents.`;

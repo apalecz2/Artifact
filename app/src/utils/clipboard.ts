@@ -1,3 +1,38 @@
+/**
+ * Copy plain text, reporting success instead of throwing.
+ *
+ * Unlike `copyTableToClipboard` below (whose callers can let a rejection bubble),
+ * the one caller here is the About screen's "copy diagnostics" button, which has
+ * to *tell* the user when the copy didn't happen — a silently dead button on the
+ * page people use to file bug reports is the worst place for one.
+ *
+ * The `execCommand` fallback covers webviews that withhold the async clipboard
+ * API from a non-https origin; it's the same mechanism the Edit menu's Cut/Copy
+ * items use (see TitleBarMenu).
+ */
+export async function copyTextToClipboard(text: string): Promise<boolean> {
+    try {
+        await navigator.clipboard.writeText(text);
+        return true;
+    } catch {
+        try {
+            const area = document.createElement('textarea');
+            area.value = text;
+            // Kept off-screen but focusable — execCommand('copy') only acts on a
+            // live selection, so the element has to be in the document.
+            area.style.position = 'fixed';
+            area.style.opacity = '0';
+            document.body.appendChild(area);
+            area.select();
+            const copied = document.execCommand('copy');
+            document.body.removeChild(area);
+            return copied;
+        } catch {
+            return false;
+        }
+    }
+}
+
 // Copy tabular data to the clipboard the way a spreadsheet (or Claude's chat) does:
 // TSV as text/plain (pastes into a text editor) plus an HTML <table> (pastes as a real
 // grid into Excel / Google Sheets / docs). Cells containing tabs, newlines, or quotes

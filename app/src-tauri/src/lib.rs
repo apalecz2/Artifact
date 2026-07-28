@@ -1,5 +1,6 @@
 mod export;
 mod hardware;
+mod install;
 mod llama;
 /// Only *used* on macOS (see the module docs for why no other platform gets a
 /// menu bar), but compiled everywhere on purpose: `#[cfg]`-gating it to macOS
@@ -118,6 +119,8 @@ pub fn run() {
             ocr::cancel_process_document,
             // Export
             export::export_xlsx,
+            // About / diagnostics
+            install::get_install_info,
             // Title bar / View menu
             zoom::set_app_zoom,
             zoom::get_app_zoom,

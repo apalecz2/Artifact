@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router';
 import { readSetting, writeSetting, type Theme } from '../lib/settings';
 import { eulaAcceptedAt } from '../features/legal/eulaAcceptance';
@@ -7,54 +7,34 @@ import { requestSetupRerun } from '../features/setup/useSetupCheck';
 import { deleteAllSessions } from '../features/sessions/sessionActions';
 import ConfirmDialog from '../components/ConfirmDialog';
 import Icon from '../components/Icon';
+import PageContainer from '../components/PageContainer';
+import Section from '../components/PageSection';
 
-function Section({ title, description, comingSoon = false, children }: {
-    title: string;
-    description?: string;
-    comingSoon?: boolean;
-    children: React.ReactNode;
-}) {
-    return (
-        <section className="flex flex-col gap-4">
-            <div>
-                <div className="flex items-center gap-3">
-                    <h2 className="font-headline-lg text-headline-lg text-on-surface">{title}</h2>
-                    {comingSoon && (
-                        <span className="flex items-center gap-1 px-2.5 py-1 rounded-full border border-outline-variant bg-surface-container-high font-label-sm text-label-sm text-on-surface-variant">
-                            <Icon name="schedule" size={14} />
-                            Coming soon
-                        </span>
-                    )}
-                </div>
-                {description && (
-                    <p className="font-body-md text-body-md text-on-surface-variant mt-1 max-w-2xl">{description}</p>
-                )}
-            </div>
-            {comingSoon ? (
-                <div className="opacity-40 pointer-events-none select-none" aria-disabled="true">
-                    {children}
-                </div>
-            ) : (
-                children
-            )}
-        </section>
-    );
-}
-
+/** Label/description on the left, control on the right. Below `sm` the control
+ *  drops onto its own line instead of competing with the text for width: at the
+ *  narrow end the app supports, a side-by-side row squeezes the description to
+ *  one word per line long before the control stops fitting.
+ *
+ *  `items-start` is load-bearing once stacked: a column flex container stretches
+ *  its children to full width, which pulls a control's own border (the theme
+ *  toggle's, say) out to the row edge while the buttons inside it stay
+ *  content-width. Controls must size to their content in both directions. */
 function SettingRow({ label, description, children }: {
     label: string;
     description?: string;
     children: React.ReactNode;
 }) {
     return (
-        <div className="flex items-center justify-between gap-8 px-5 py-4">
-            <div className="min-w-0 flex-1">
+        <div className="flex flex-col items-start sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-8 px-5 py-4">
+            {/* The text block is the one child that *should* span the row when
+                stacked, so it opts back in explicitly. */}
+            <div className="w-full min-w-0 sm:w-auto sm:flex-1">
                 <p className="font-body-md text-body-md text-on-surface font-medium">{label}</p>
                 {description && (
                     <p className="font-body-sm text-body-sm text-on-surface-variant mt-0.5">{description}</p>
                 )}
             </div>
-            <div className="shrink-0">{children}</div>
+            <div className="sm:shrink-0">{children}</div>
         </div>
     );
 }
@@ -71,20 +51,22 @@ function PathField({ label, hint, value, onChange, onBrowse, disabled = false }:
         <div className={`flex flex-col gap-1.5 transition-opacity ${disabled ? 'opacity-40 pointer-events-none select-none' : ''}`}>
             <label className="font-label-md text-label-md text-on-surface">{label}</label>
             {hint && <p className="font-body-sm text-body-sm text-on-surface-variant -mt-0.5">{hint}</p>}
-            <div className="flex gap-2 mt-0.5">
+            {/* Stacks below `sm`: side by side, the path field shrinks past the
+                point where any of the path is readable before Browse gives way. */}
+            <div className="flex flex-col sm:flex-row gap-2 mt-0.5">
                 <input
                     type="text"
                     value={value}
                     onChange={(e) => onChange(e.target.value)}
                     placeholder="Leave blank to use the model installed by setup"
                     disabled={disabled}
-                    className="flex-1 rounded-lg border border-outline-variant bg-surface px-3 py-2 font-body-md text-body-md text-on-surface placeholder:text-on-surface-variant/40 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 transition-colors"
+                    className="min-w-0 sm:flex-1 rounded-lg border border-outline-variant bg-surface px-3 py-2 font-body-md text-body-md text-on-surface placeholder:text-on-surface-variant/40 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 transition-colors"
                 />
                 <button
                     type="button"
                     onClick={onBrowse}
                     disabled={disabled}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-outline-variant bg-surface-container hover:bg-surface-container-high font-label-md text-label-md text-on-surface-variant transition-colors"
+                    className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-outline-variant bg-surface-container hover:bg-surface-container-high font-label-md text-label-md text-on-surface-variant transition-colors shrink-0"
                 >
                     <Icon name="folder_open" size={16} />
                     Browse
@@ -101,12 +83,7 @@ export default function Settings(): React.ReactElement {
     const [mmprojPath, setMmprojPath] = useState(() => readSetting('mmprojPath'));
     const [pathsSaved, setPathsSaved] = useState(false);
 
-    const [appVersion, setAppVersion] = useState<string | null>(null);
     const acceptedAt = eulaAcceptedAt();
-
-    useEffect(() => {
-        import('@tauri-apps/api/app').then(({ getVersion }) => getVersion()).then(setAppVersion).catch(() => {});
-    }, []);
 
     const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
     const [deleting, setDeleting] = useState(false);
@@ -150,18 +127,11 @@ export default function Settings(): React.ReactElement {
     };
 
     return (
-        <main className="absolute inset-0 overflow-y-auto bg-surface">
-            <div className="absolute inset-0 pointer-events-none opacity-[0.03] bg-[radial-gradient(circle_at_top,var(--tw-gradient-stops))] from-primary via-transparent to-transparent" />
-
-            <div className="relative z-10 max-w-4xl mx-auto px-[--spacing-margin-page] py-16 flex flex-col gap-16">
-
-                {/* ── Hero ── */}
-                <section>
-                    <h1 className="font-display-lg text-display-lg text-primary tracking-tight">Settings</h1>
-                    <p className="font-body-lg text-body-lg text-on-surface-variant mt-3 max-w-xl">
-                        Configure Anchor's appearance, AI model paths, and setup.
-                    </p>
-                </section>
+        <>
+            <PageContainer
+                title="Settings"
+                description="Configure Anchor's appearance, AI model paths, and setup."
+            >
 
                 {/* ── Appearance ── */}
                 <Section title="Appearance">
@@ -274,7 +244,7 @@ export default function Settings(): React.ReactElement {
                             label="Delete all sessions"
                             description="Permanently removes every session and related data from this device. Your original attached files and any outputs you saved elsewhere are left untouched. This cannot be undone."
                         >
-                            <div className="flex items-center gap-3">
+                            <div className="flex flex-wrap items-center gap-3">
                                 {deleteResult && (
                                     <span className="font-body-sm text-body-sm text-on-surface-variant">
                                         {deleteResult}
@@ -311,7 +281,7 @@ export default function Settings(): React.ReactElement {
                                 className="flex items-center gap-3 px-5 py-4 hover:bg-surface-container-high transition-colors no-underline"
                             >
                                 <Icon name={icon} size={18} className="text-primary shrink-0" />
-                                <span className="flex-1 font-body-md text-body-md text-on-surface font-medium">{label}</span>
+                                <span className="min-w-0 flex-1 font-body-md text-body-md text-on-surface font-medium">{label}</span>
                                 <Icon name="chevron_right" size={20} className="text-on-surface-variant shrink-0" />
                             </Link>
                         ))}
@@ -323,13 +293,13 @@ export default function Settings(): React.ReactElement {
                     )}
                 </Section>
 
-                {appVersion && (
-                    <p className="font-body-sm text-body-sm text-on-surface-variant/40 text-center pb-2">
-                        Anchor v{appVersion}
-                    </p>
-                )}
+                <p className="font-body-sm text-body-sm text-on-surface-variant/40 text-center pb-2">
+                    <Link to="/about" className="text-inherit no-underline hover:text-on-surface-variant transition-colors">
+                        About Anchor &amp; version
+                    </Link>
+                </p>
 
-            </div>
+            </PageContainer>
 
             <ConfirmDialog
                 open={confirmDeleteAll}
@@ -339,6 +309,6 @@ export default function Settings(): React.ReactElement {
                 onConfirm={handleDeleteAllSessions}
                 onCancel={() => setConfirmDeleteAll(false)}
             />
-        </main>
+        </>
     );
 }
