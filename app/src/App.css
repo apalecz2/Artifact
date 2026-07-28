@@ -54,14 +54,17 @@
 	--spacing-sidebar-collapsed: 5.5rem;
 	--spacing-70: 18rem;
 
-	--font-display-lg: "Source Serif 4", Georgia, serif;
-	--font-display-sm: "Source Serif 4", Georgia, serif;
-	--font-headline-lg: "Source Serif 4", Georgia, serif;
-	--font-headline-md: "Source Serif 4", Georgia, serif;
-	--font-body-lg: "Source Serif 4", Georgia, serif;
-	--font-body-md: "Source Serif 4", Georgia, serif;
-	--font-body-sm: "Inter", system-ui, sans-serif;
-	--font-label-md: "Inter", system-ui, sans-serif;
+	/* "… Variable" is the family name Fontsource's variable packages register
+	   (see the imports in main.tsx); the plain name stays as the next fallback
+	   so a system-installed copy still wins over Georgia/system-ui. */
+	--font-display-lg: "Source Serif 4 Variable", "Source Serif 4", Georgia, serif;
+	--font-display-sm: "Source Serif 4 Variable", "Source Serif 4", Georgia, serif;
+	--font-headline-lg: "Source Serif 4 Variable", "Source Serif 4", Georgia, serif;
+	--font-headline-md: "Source Serif 4 Variable", "Source Serif 4", Georgia, serif;
+	--font-body-lg: "Source Serif 4 Variable", "Source Serif 4", Georgia, serif;
+	--font-body-md: "Source Serif 4 Variable", "Source Serif 4", Georgia, serif;
+	--font-body-sm: "Inter Variable", "Inter", system-ui, sans-serif;
+	--font-label-md: "Inter Variable", "Inter", system-ui, sans-serif;
 	--font-mono-data: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 
 	--text-display-lg: 3rem;
@@ -189,6 +192,18 @@ html.dark {
 	[role="button"]:not(:disabled) {
 		cursor: pointer;
 	}
+}
+
+/* Pin the Material Symbols variable axes to the values the app has always
+   rendered at. The old Google-hosted stylesheet requested single axis values
+   (`…:opsz,wght,FILL,GRAD@24,400,0,0`), so what it served was a font *instanced*
+   at that point — the axes were fixed in the file itself and no
+   `font-variation-settings` could move them. The self-hosted package ships the
+   full variable font with all four axes live, so without this rule the axes fall
+   to the font's own defaults (opsz 48) and any per-icon override suddenly takes
+   effect. See the note in Icon.tsx before changing these. */
+.material-symbols-outlined {
+	font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
 }
 
 html,

@@ -1,5 +1,5 @@
 {
-  "name": "app",
+  "name": "anchor",
   "private": true,
   "version": "0.2.0",
   "description": "Anchor: desktop app that extracts structured tables from scanned PDFs and images, fully on-device",
@@ -18,6 +18,8 @@
     "tauri": "tauri"
   },
   "dependencies": {
+    "@fontsource-variable/inter": "^5.3.0",
+    "@fontsource-variable/source-serif-4": "^5.3.0",
     "@tailwindcss/vite": "^4.3.0",
     "@tauri-apps/api": "^2.11.0",
     "@tauri-apps/plugin-dialog": "^2.7.1",
@@ -25,6 +27,7 @@
     "@tauri-apps/plugin-opener": "^2",
     "@tauri-apps/plugin-shell": "^2.3.5",
     "@tauri-apps/plugin-sql": "^2.4.0",
+    "material-symbols": "^0.45.9",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-router": "^7.16.0",

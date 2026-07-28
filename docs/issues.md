@@ -2,92 +2,60 @@
 
 ## Open
 
+### UI / Frontend
+
 - Screenshots don't show up well against the same theme -- dark screenshot against dark mode bg + vice versa
-     - Could add drop shadow, or outline?
-
-
-
+  - Could add drop shadow, or outline?
 - Install steps ui need to scale to smaller device sizes better
-     - Entire app should scale better on small screens
+  - Entire app should scale better on small screens
+- toolbars should minimize tools to just icons when the width of that side is small
+- dark mode in the installation view (for reinstallation)
+- Full window tool bar (view, file, etc)
+  - add more tools beyond zoom (saving / exporting, etc)
+- arrow keys on the table to move around cells: left and right always skip to next issue, not just to the left or right cell
+  - is this how it should behave?
+- Move the info button for each side of the session to the header, with an option to collapse that pannel
+- note on poor quality extractions -- "try fixing the OCR on the left for better results"
+
+### Build / Packaging
+
+- self-hosted Material Symbols is the full 4 MB icon font (Google served the same, but it's in the installer now) — subset it to the ~80 glyphs actually used
+
+### Testing
 
 - Testing coverage and documentation
 - npm ci from e2e ? doesn't work?
-- test pdfium cargo test 
+- test pdfium cargo test
 
-- note on poor quality extractions -- "try fixing the OCR on the left for better results"
+### Legal / Copy
 
 - proof read all text
-
-- remove the fetches for styling from google fonts etc. to support no network claim
-     - build these dependencies in
-
-
-- Full window tool bar (view, file, etc)
-     - add more tools beyond zoom (saving / exporting, etc)
-
-- arrow keys on the table to move around cells: left and right always skip to next issue, not just to the left or right cell
-     - is this how it should behave?
-
-
-- toolbars should minimize tools to just icons when the width of that side is small
-
-
-- dark mode in the installation view (for reinstallation)
-
-
 - re verify all legal related content
-     - including how it is just in the app with notes on ai output
-
-
-- package.json name is app
-
-- no em dashes anywhere (many in installation steps rn)
-
+  - including how it is just in the app with notes on ai output
 - do the terms and conditions need the user to have scrolled through them to accept?
 
+### Website
 
-
-### Website:
 - Use actual screenshots
 - Signed installers
 - focused ideal-customer profile
-     -  one or two lead use cases to anchor the hero/problem copy around (e.g. registrar offices processing transcripts)
+  -  one or two lead use cases to anchor the hero/problem copy around (e.g. registrar offices processing transcripts)
 - monetization signal (add way to show this is monetizable)(?)
-
-
 
 ---
 
-
-
+## Backlog
 
 - more in depth speadsheet editor. to delete cells etc and merge left right etc
-
-
 - Right side of session as single page, chat menu type interface with the raw output and table pinned to the top
-    - this shows the history of extraction, if the user did any reextractions to show the old ones in a chronological ordering
-    - then also their chat messages to make edits, with the table before and after
-    - The "saved in app" stuff could go in the header for everything in the session
-
-
-
-- Eventually probably a vs code style work area that can be configured however the user chooses
-
-
+  - this shows the history of extraction, if the user did any reextractions to show the old ones in a chronological ordering
+  - then also their chat messages to make edits, with the table before and after
+  - The "saved in app" stuff could go in the header for everything in the session
 - Add a select multiple option to mark many cells as viewed at once
-
-- Move the info button for each side of the session to the header, with an option to collapse that pannel
-
-
-
-
-
+- Eventually probably a vs code style work area that can be configured however the user chooses
 
 version 2 and later:
 - chat with llm to edit the cells
-
-
-
 
 
 
@@ -95,8 +63,7 @@ version 2 and later:
 
 ## Resolved
 
-
-
+### General
 
 Added excel export support
 
@@ -107,11 +74,6 @@ Added excel export support
 **No in-app indication that results are saved.** After an extraction the output is
    persisted, but the UI gives no "saved" affordance, so the user can't tell their work is
    safe. Needs a save-state indicator.
-
-
-
-
-
 
 **Colour was the only signal for confidence — bad accessibility for colour blind.**
    Low-trust table cells now carry a "!" badge whenever they don't already show the
@@ -186,6 +148,39 @@ Added excel export support
      bytes; `useLlamaChat.ts` then re-`fetch`es the blob URL for the same bytes. Passing the
      bytes/base64 directly would drop the round-trip and make this path immune to
      `connect-src` regressions entirely.
+
+4. **The app fetched its fonts from Google on every launch, contradicting the on-device
+   claim.** `index.html` `<link>`ed Inter, Source Serif 4, and Material Symbols from
+   `fonts.googleapis.com`/`fonts.gstatic.com`, which also forced both origins into
+   `style-src`/`font-src` in *both* `csp` and `devCsp`. Offline — the normal case for this
+   app — the UI fell back to Georgia/system-ui and every icon rendered as its ligature text.
+   - **Resolved** by self-hosting: `@fontsource-variable/inter`,
+     `@fontsource-variable/source-serif-4`, and `material-symbols` are now bundled and
+     imported from `main.tsx` (not `App.css` — Tailwind v4 owns that file's `@import` graph),
+     and both Google origins are gone from the CSP, which is now `font-src 'self'` outright.
+   - Fontsource registers the families as `Inter Variable` / `Source Serif 4 Variable`, so the
+     `--font-*` tokens list those first and keep the plain names as fallbacks.
+   - **The icons came back filled.** The Google URL requested *single* axis values
+     (`…:opsz,wght,FILL,GRAD@24,400,0,0`), so what it served was a font **instanced** at that
+     point — the axes were baked into the file, and `font-variation-settings` could not move
+     them. Every `fill={1}` and `weight={300}` in the codebase had therefore been a silent
+     no-op since it was written. The self-hosted package ships the *full* variable font with
+     all four axes live, so those props abruptly started working: six icons (the
+     `check_circle`s in CompleteStep/DownloadStep/Settings/ExtractionOutputPane and the active
+     `SideNavBar` item) filled in, and the `weight={300}` ones thinned.
+     - Fixed by pinning `FILL 0, wght 400, GRAD 0, opsz 24` on `.material-symbols-outlined`
+       in App.css — the instanced font's values — and gating the props behind `PIN_AXES` in
+       `Icon.tsx`. The pin must live in CSS, not in `Icon`'s inline style, because
+       `font-variation-settings` is replaced wholesale rather than merged: a partial inline
+       value would drop the unnamed axes to the *font's* defaults (opsz 48), not the pinned
+       ones.
+     - **Worth a decision:** those six call sites were asking for filled icons and not getting
+       them. `PIN_AXES = false` turns the props on — a deliberate visual change, icon by icon.
+   - Cost: ~4 MB of icon font in the bundle (subsetting tracked under Open ▸ Build /
+     Packaging).
+
+5. **`package.json` was still named `app`** while every other field was already
+   Anchor-branded. Renamed to `anchor`.
 
 ### Data / Storage
 
