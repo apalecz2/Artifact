@@ -21,6 +21,10 @@ export default function Search(): React.ReactElement {
     const [page, setPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
     const [isLoading, setIsLoading] = useState(false);
+    // Distinguishes "nothing matched this query" from "there is nothing to search
+    // yet" — null until the first fetch resolves, so neither empty state flashes
+    // before we know which one applies.
+    const [hasAnySessions, setHasAnySessions] = useState<boolean | null>(null);
     const [refreshToken, setRefreshToken] = useState(0);
     const [sessionToDelete, setSessionToDelete] = useState<Session | null>(null);
 
@@ -43,13 +47,18 @@ export default function Search(): React.ReactElement {
                 const db = await getDb();
                 const searchTerm = `%${escapeLike(debouncedQuery)}%`;
 
-                // Fetch total count for pagination
-                const countRes = await db.select<{ count: number }[]>(
-                    `SELECT COUNT(*) as count FROM sessions WHERE title LIKE $1 ESCAPE '\\'`,
+                // Total count for pagination, plus the unfiltered total in the same
+                // pass — the empty state needs to know whether the table itself is
+                // empty, and a second round-trip for that would be wasteful.
+                const countRes = await db.select<{ matches: number | null; total: number }[]>(
+                    `SELECT SUM(CASE WHEN title LIKE $1 ESCAPE '\\' THEN 1 ELSE 0 END) as matches,
+                            COUNT(*) as total
+                     FROM sessions`,
                     [searchTerm]
                 );
-                
-                const totalItems = countRes[0]?.count || 0;
+
+                const totalItems = countRes[0]?.matches || 0;
+                const totalSessions = countRes[0]?.total || 0;
                 const calculatedTotalPages = Math.max(1, Math.ceil(totalItems / ITEMS_PER_PAGE));
 
                 // Clamp the requested page into range and fetch *that* page's results
@@ -69,6 +78,7 @@ export default function Search(): React.ReactElement {
                 if (isMounted) {
                     setResults(items);
                     setTotalPages(calculatedTotalPages);
+                    setHasAnySessions(totalSessions > 0);
                     if (safePage !== page) setPage(safePage);
                 }
             } catch (error) {
@@ -144,11 +154,27 @@ export default function Search(): React.ReactElement {
                                 </div>
                             ))}
                         </div>
-                    ) : (
+                    ) : hasAnySessions === false ? (
+                        <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
+                            <Icon name="search" size={40} className="text-on-surface-variant/50" />
+                            <p className="text-lg font-medium text-on-surface">No extractions yet</p>
+                            <p className="max-w-sm text-sm text-on-surface-variant">
+                                Once you extract a table from a document, it will show up here and
+                                you can search it by name.
+                            </p>
+                            <Link
+                                to="/"
+                                className="mt-2 flex h-10 items-center justify-center gap-2 rounded-[10px] bg-primary px-4 text-sm font-medium text-on-primary transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+                            >
+                                <Icon name="add" size={18} />
+                                New extraction
+                            </Link>
+                        </div>
+                    ) : hasAnySessions === null ? null : debouncedQuery ? (
                         <div className="text-on-surface-variant">
                             No results found for "{debouncedQuery}".
                         </div>
-                    )}
+                    ) : null}
                 </div>
 
                 {/* Pagination Controls */}
