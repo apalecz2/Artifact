@@ -6,11 +6,11 @@ import Icon from '../components/Icon';
 import PageContainer from '../components/PageContainer';
 import Section from '../components/PageSection';
 import { copyTextToClipboard } from '../utils/clipboard';
+import { copyrightYears } from '../utils/copyright';
 import { hasSetting, readSetting } from '../lib/settings';
 import {
     buildDiagnostics,
     formatDiagnostics,
-    type DiagnosticField,
     type InstallInfo,
 } from '../features/about/installInfo';
 import { backendWarning } from '../features/setup/backend';
@@ -40,10 +40,18 @@ function external(href: string): (e: React.MouseEvent) => void {
 
 /* ── This install ─────────────────────────────────────────────────────────── */
 
+/** Everything the panel needs except the GPU probe, which is fetched separately. */
+interface FastFacts {
+    version: string | null;
+    install: InstallInfo | null;
+    backend: Backend | null;
+    modelPath: string | null;
+}
+
 function DiagnosticsPanel(): React.ReactElement {
-    const [fields, setFields] = useState<DiagnosticField[] | null>(null);
-    const [mismatch, setMismatch] = useState<string | null>(null);
-    const [dataDir, setDataDir] = useState<string | null>(null);
+    const [facts, setFacts] = useState<FastFacts | null>(null);
+    const [hardware, setHardware] = useState<HardwareInfo | null>(null);
+    const [hardwarePending, setHardwarePending] = useState(true);
     const [copied, setCopied] = useState<'idle' | 'ok' | 'fail'>('idle');
 
     useEffect(() => {
@@ -54,12 +62,15 @@ function DiagnosticsPanel(): React.ReactElement {
         // since a partly-filled report still beats no report.
         const settle = <T,>(p: Promise<T>): Promise<T | null> => p.then((v) => v).catch(() => null);
 
+        // Two chains, not one Promise.all. `detect_hardware` shells out to WMI /
+        // nvidia-smi / system_profiler and can take seconds; the rest resolve in
+        // milliseconds. Awaiting them together would hold the whole panel behind
+        // the slowest one for no reason.
         void Promise.all([
             settle(import('@tauri-apps/api/app').then(({ getVersion }) => getVersion())),
             settle(invoke<InstallInfo>('get_install_info')),
-            settle(invoke<HardwareInfo>('detect_hardware')),
             settle(invoke<SetupPaths>('get_setup_paths')),
-        ]).then(([version, install, hardware, paths]) => {
+        ]).then(([version, install, paths]) => {
             if (cancelled) return;
 
             // localStorage is the live value (useSetupCheck heals it from disk on
@@ -70,16 +81,29 @@ function DiagnosticsPanel(): React.ReactElement {
                 : paths?.hardware_backend ?? null;
             const modelPath = readSetting('modelPath') || paths?.model_path || null;
 
-            setFields(buildDiagnostics({ version, install, hardware, backend, modelPath }));
-            setDataDir(install?.data_dir ?? null);
-            // Same check the wizard runs before installing, re-run against the
-            // machine as it is now: the installed build is fixed at setup, but
-            // the hardware under it can change afterwards.
-            setMismatch(backend && hardware ? backendWarning(backend, hardware) : null);
+            setFacts({ version, install, backend, modelPath });
         });
 
+        void settle(invoke<HardwareInfo>('detect_hardware')).then((hw) => {
+            if (cancelled) return;
+            setHardware(hw);
+            setHardwarePending(false);
+        });
+
+        // Navigating away can't recall an in-flight command — Tauri's IPC has no
+        // cancel — but the probe now runs on a backend worker thread, so leaving
+        // is instant and the orphaned result is simply dropped here.
         return () => { cancelled = true; };
     }, []);
+
+    const fields = facts
+        ? buildDiagnostics({ ...facts, hardware, hardwarePending })
+        : null;
+    // Same check the wizard runs before installing, re-run against the machine as
+    // it is now: the installed build is fixed at setup, but the hardware under it
+    // can change afterwards.
+    const mismatch = facts?.backend && hardware ? backendWarning(facts.backend, hardware) : null;
+    const dataDir = facts?.install?.data_dir ?? null;
 
     const onCopy = async () => {
         if (!fields) return;
@@ -388,7 +412,7 @@ export default function About(): React.ReactElement {
                     ))}
                 </div>
                 <p className="font-body-sm text-body-sm text-on-surface-variant">
-                    Anchor · Copyright © 2026 Aiden Paleczny · Licensed under the Elastic License 2.0.
+                    Anchor · Copyright © {copyrightYears()} Aiden Paleczny · Licensed under the Elastic License 2.0.
                     Security, copyright, or AI-output concerns:{' '}
                     <a
                         href={`mailto:${LINKS.email}`}

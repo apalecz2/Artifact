@@ -105,6 +105,23 @@ describe('buildDiagnostics', () => {
         expect(byLabel.Graphics).toBe('AMD Radeon RX 7800');
     });
 
+    it('marks only the hardware rows as pending while the GPU probe runs', () => {
+        const fields = buildDiagnostics({ ...full, hardware: null, hardwarePending: true });
+        const byLabel = Object.fromEntries(fields.map((f) => [f.label, f.value]));
+        expect(byLabel.Graphics).toBe('Detecting…');
+        expect(byLabel['System memory']).toBe('Detecting…');
+        // The fast facts are already known and must not be held back with them.
+        expect(byLabel.Version).toBe('Anchor 0.2.0');
+        expect(byLabel['Installed build']).toBe('CUDA (NVIDIA GPU)');
+    });
+
+    it('keeps the row set stable across the pending → resolved transition', () => {
+        // Otherwise the panel reflows under the reader when the probe lands.
+        const pending = buildDiagnostics({ ...full, hardware: null, hardwarePending: true });
+        const resolved = buildDiagnostics(full);
+        expect(pending.map((f) => f.label)).toEqual(resolved.map((f) => f.label));
+    });
+
     it('reduces the model path to its filename', () => {
         const posix = buildDiagnostics({ ...full, modelPath: '/Users/a/models/custom.gguf' });
         expect(posix.find((f) => f.label === 'Model')?.value).toBe('custom.gguf');

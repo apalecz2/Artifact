@@ -63,12 +63,19 @@ export interface DiagnosticField {
     mono?: boolean;
 }
 
+/** Placeholder for the one probe slow enough to be worth waiting on visibly. */
+const PENDING = 'Detecting…';
+
 export interface DiagnosticsInput {
     version: string | null;
     install: InstallInfo | null;
     hardware: HardwareInfo | null;
     backend: Backend | null;
     modelPath: string | null;
+    /** True while the GPU probe is still running. Its rows are rendered as
+     *  `Detecting…` rather than omitted, so the panel doesn't reflow under the
+     *  reader when the probe lands. */
+    hardwarePending?: boolean;
 }
 
 /** The rows shown in the panel *and* copied to the clipboard — one source, so
@@ -79,16 +86,20 @@ export function buildDiagnostics({
     hardware,
     backend,
     modelPath,
+    hardwarePending = false,
 }: DiagnosticsInput): DiagnosticField[] {
     const fields: DiagnosticField[] = [
         { label: 'Version', value: version ? `Anchor ${version}` : UNKNOWN },
         { label: 'System', value: osLabel(install) },
         { label: 'Installed build', value: buildLabel(backend) },
-        { label: 'Graphics', value: graphicsLabel(hardware) },
+        { label: 'Graphics', value: hardwarePending ? PENDING : graphicsLabel(hardware) },
     ];
 
-    if (hardware) {
-        fields.push({ label: 'System memory', value: `${(hardware.ram_mb / 1024).toFixed(1)} GB` });
+    if (hardware || hardwarePending) {
+        fields.push({
+            label: 'System memory',
+            value: hardware ? `${(hardware.ram_mb / 1024).toFixed(1)} GB` : PENDING,
+        });
     }
     // Basename only: the directory is already shown as "Data folder", and the
     // filename is the part that identifies which model is loaded.

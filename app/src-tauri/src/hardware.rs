@@ -39,8 +39,25 @@ pub struct HardwareInfo {
     pub available_backends: Vec<String>,
 }
 
+/// `async` so Tauri runs it on the async runtime rather than the main (UI)
+/// thread — a synchronous `#[tauri::command]` is invoked on the main thread, and
+/// this one shells out to PowerShell/WMI, `nvidia-smi`, or `system_profiler`,
+/// which routinely takes seconds. On the main thread that stalls the event loop,
+/// so the window stops responding until the probe returns.
+///
+/// The probe itself is blocking process I/O, not async, so it goes to the
+/// blocking pool via `spawn_blocking` instead of occupying an async worker
+/// (same reasoning as `setup::verify_file_hash`).
 #[tauri::command]
-pub fn detect_hardware() -> HardwareInfo {
+pub async fn detect_hardware() -> Result<HardwareInfo, String> {
+    tokio::task::spawn_blocking(probe_hardware)
+        .await
+        .map_err(|error| format!("hardware probe failed: {error}"))
+}
+
+/// The probe itself, kept synchronous and separate from the command wrapper so
+/// tests can call it directly without an async runtime.
+fn probe_hardware() -> HardwareInfo {
     let (gpu_name, gpu_vendor, vram_mb, ram_mb) = query_hardware();
     let recommended_backend = recommend_backend(gpu_vendor.as_deref(), vram_mb);
     HardwareInfo {
@@ -369,10 +386,10 @@ mod tests {
     }
 
     #[test]
-    fn detect_hardware_does_not_panic() {
+    fn probe_hardware_does_not_panic() {
         // Smoke: probing real hardware must always return a struct, never panic,
         // even with no GPU / tools absent.
-        let hw = detect_hardware();
+        let hw = probe_hardware();
         assert!(!hw.recommended_backend.is_empty());
         assert!(!hw.os.is_empty());
     }
