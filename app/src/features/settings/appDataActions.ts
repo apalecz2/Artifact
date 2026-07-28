@@ -83,7 +83,7 @@ export function planAfterRemoval(report: RemovalReport, mode: RemovalMode): Remo
         const count = report.failed.length;
         return {
             next: 'stay',
-            message: `Removed ${freed}, but ${count} file${count === 1 ? '' : 's'} could not be deleted — something on this device is still using them. Restart your computer and try again.`,
+            message: `Removed ${freed}, but ${count} file${count === 1 ? '' : 's'} could not be deleted, because something on this device is still using them. Restart your computer and try again.`,
         };
     }
 

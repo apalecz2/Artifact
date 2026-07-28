@@ -4,7 +4,7 @@ Anchor (the "software") is Copyright (c) 2026 Aiden Paleczny and is licensed und
 Elastic License 2.0 (see [LICENSE](LICENSE)).
 
 Anchor incorporates, downloads, and/or redistributes the third-party components listed in
-this file. **These components are not licensed under the Elastic License 2.0** — each
+this file. **These components are not licensed under the Elastic License 2.0**; each
 remains under its own license, reproduced or referenced below. This file satisfies the
 attribution and notice-retention obligations of those licenses.
 
@@ -56,7 +56,7 @@ SOFTWARE.
   language data: <https://github.com/tesseract-ocr/tessdata>
 - Copyright: Hewlett-Packard (1985–2005), Google Inc. (2006–2018), and the
   Tesseract contributors
-- License: Apache License 2.0 — full text in [Appendix A](#appendix-a-apache-license-20).
+- License: Apache License 2.0. Full text in [Appendix A](#appendix-a-apache-license-20).
   The upstream repository ships no separate `NOTICE` file (verified 2026-07-13); if one is
   added upstream, its contents must be reproduced here.
 
@@ -67,7 +67,7 @@ SOFTWARE.
   (<https://github.com/bblanchon/pdfium-binaries>, build scripts Copyright 2014-2025
   Benoit Blanchon, MIT)
 - License: BSD-3-Clause (PDFium's LICENSE additionally incorporates the Apache License
-  2.0 for portions of the codebase — see Appendix A):
+  2.0 for portions of the codebase; see Appendix A):
 
 ```
 Copyright 2014 The PDFium Authors
@@ -106,12 +106,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 - GGUF quantization (`Qwen3.5-4B-Q4_K_M.gguf`, `mmproj-F16.gguf`) by Unsloth
   (<https://huggingface.co/unsloth/Qwen3.5-4B-GGUF>, pinned revision
   `e87f176479d0855a907a41277aca2f8ee7a09523`)
-- License: Apache License 2.0 (both the base model and the quantization — verified against
+- License: Apache License 2.0 (both the base model and the quantization, verified against
   the Hugging Face license metadata of both repositories on 2026-07-13). Apache-2.0
   permits redistribution, including via the author-operated mirror, with this attribution
   retained. Full text in [Appendix A](#appendix-a-apache-license-20).
 
-### 1.5 NVIDIA CUDA Runtime (`cudart64_*.dll`) — Windows CUDA backend only
+### 1.5 NVIDIA CUDA Runtime (`cudart64_*.dll`): Windows CUDA backend only
 
 - Copyright (c) NVIDIA Corporation & Affiliates
 - License: NVIDIA CUDA Toolkit End User License Agreement
@@ -154,8 +154,8 @@ its respective MIT/ISC/MPL-2.0 licenses.
 ## 3. Rust crates (compiled into the application binary)
 
 All crates below are statically linked into the shipped executable and used under the
-license shown (for multi-licensed crates, the first permissive option — MIT where
-offered — is elected). Generated from `cargo metadata`; 699 crates.
+license shown (for multi-licensed crates, the first permissive option, MIT where
+offered, is elected). Generated from `cargo metadata`; 699 crates.
 
 | Crate | Version | License | Repository |
 |---|---|---|---|
@@ -1077,7 +1077,7 @@ SOFTWARE.
 
 ## Appendix C. BSD Licenses (templates)
 
-**BSD 3-Clause** — applies to crates/packages listing BSD-3-Clause (copyright holder per
+**BSD 3-Clause** applies to crates/packages listing BSD-3-Clause (copyright holder per
 each project's repository):
 
 ```
@@ -1108,7 +1108,7 @@ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 POSSIBILITY OF SUCH DAMAGE.
 ```
 
-**BSD 2-Clause** — as above, omitting condition 3.
+**BSD 2-Clause** is as above, omitting condition 3.
 
 ## Appendix D. Other license texts
 
@@ -1148,13 +1148,13 @@ freely, subject to the following restrictions:
 3. This notice may not be removed or altered from any source distribution.
 ```
 
-**Unicode License v3 (Unicode-3.0)** — applies to the ICU/Unicode data crates
+**Unicode License v3 (Unicode-3.0)** applies to the ICU/Unicode data crates
 (`icu_*`, `unicode-*`, etc.): permission is granted free of charge to deal in the data
 files and software without restriction, provided the copyright notice
 (`Copyright © Unicode, Inc.`) and permission notice appear in all copies; full text:
 <https://spdx.org/licenses/Unicode-3.0.html>.
 
-**Mozilla Public License 2.0 (MPL-2.0)** — applies to a small number of crates (e.g.
+**Mozilla Public License 2.0 (MPL-2.0)** applies to a small number of crates (e.g.
 `option-ext`, `cssparser`-related, LightningCSS build tooling). These are used
 **unmodified**; per MPL §3.2, the source code of each is available from the repository
 URL listed in its table row. Full text: <https://www.mozilla.org/en-US/MPL/2.0/>.

@@ -54,18 +54,18 @@ export function OutputHelp(): React.ReactElement {
             </HelpItem>
             <HelpItem icon="ads_click" title="Source highlighting">
                 Click any table cell to highlight the words it came from on the document.
-                Cell colors show how confident the match is — green (high), amber (medium),
+                Cell colors show how confident the match is: green (high), amber (medium),
                 red (low), and grey for cells with no verified source. Badges flag cells
                 worth checking: "!" low confidence, "≈" approximate match, "?" no verified
                 source, "✓" manually verified.
             </HelpItem>
             <HelpItem icon="checklist" title="Review flagged cells">
-                The toolbar counts the cells worth a second look and steps through them —
+                The toolbar counts the cells worth a second look and steps through them:
                 use the arrow buttons or the ←/→ keys; each step jumps to the cell's spot
                 on the document. Fix a wrong value by editing it, or press Space (or the
                 checkbox button) to mark a correct cell as verified. Resolved cells turn
                 green with a ✓, and the toolbar shows "All cells reviewed" once the list
-                is clear — after that, ←/→ walk every cell.
+                is clear. After that, ←/→ walk every cell.
             </HelpItem>
             <HelpItem icon="edit" title="Edit a cell">
                 Double-click a cell (or select it and press Enter) to type a correction.

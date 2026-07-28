@@ -1,10 +1,10 @@
-# Anchor — End User License Agreement & Terms of Use
+# Anchor End User License Agreement & Terms of Use
 
 **Effective date / last updated: July 23, 2026**
 
 This End User License Agreement ("**Agreement**") is between you and **Aiden Paleczny**
 ("**Licensor**", "we") and governs your use of the **Anchor** desktop application,
-including its documentation and any updates (the "**App**"), and — per Section 12 — the
+including its documentation and any updates (the "**App**"), and, per Section 12, the
 Anchor website. By installing or using the App you agree to this Agreement. If you do not
 agree, do not install or use the App.
 
@@ -38,18 +38,18 @@ one-time purchase and enabled by a license key or equivalent activation mechanis
   work on your system. Nothing in this section limits any non-waivable statutory refund
   or warranty rights you have under local consumer law.
 
-## 3. AI-generated output — verify before relying on it
+## 3. AI-generated output: verify before relying on it
 
 The App extracts tables using optical character recognition and a **local generative AI
 model**:
 
 - **Output may be inaccurate, incomplete, or wrong.** OCR can misread characters; the AI
   model can misplace, merge, invent, or omit values. The App's confidence indicators and
-  provenance highlighting are aids to review — **they are not a guarantee of accuracy**,
+  provenance highlighting are aids to review; **they are not a guarantee of accuracy**,
   and a "high confidence" marking can still be wrong.
 - **You are solely responsible for verifying extracted data against the source document
   before relying on it or providing it to others.** Do not use unverified output for any
-  purpose where an error could cause harm or loss — including financial, accounting, tax,
+  purpose where an error could cause harm or loss, including financial, accounting, tax,
   medical, legal, safety, or regulatory purposes.
 - The App produces output only from documents you supply; the model runs on your device
   and output is shown only to you. It is your responsibility to review output before any
@@ -104,8 +104,8 @@ warranties are limited to the minimum scope and period required by law.
 **TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW: (A) LICENSOR SHALL NOT BE LIABLE FOR
 ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, EXEMPLARY, OR PUNITIVE DAMAGES, OR FOR
 ANY LOSS OF PROFITS, REVENUE, DATA, GOODWILL, OR BUSINESS OPPORTUNITY, OR FOR THE COST OF
-SUBSTITUTE SERVICES, ARISING OUT OF OR RELATED TO THIS AGREEMENT OR THE APP — INCLUDING
-ANY DAMAGES ARISING FROM RELIANCE ON INACCURATE OR INCOMPLETE EXTRACTED DATA — EVEN IF
+SUBSTITUTE SERVICES, ARISING OUT OF OR RELATED TO THIS AGREEMENT OR THE APP, INCLUDING
+ANY DAMAGES ARISING FROM RELIANCE ON INACCURATE OR INCOMPLETE EXTRACTED DATA, EVEN IF
 ADVISED OF THE POSSIBILITY OF SUCH DAMAGES; AND (B) LICENSOR'S TOTAL AGGREGATE LIABILITY
 ARISING OUT OF OR RELATED TO THIS AGREEMENT OR THE APP SHALL NOT EXCEED THE GREATER OF
 THE AMOUNT YOU PAID FOR THE APP IN THE TWELVE (12) MONTHS BEFORE THE CLAIM AROSE OR TEN
@@ -139,7 +139,7 @@ website. Copyright or takedown concerns: see the contact in Section 14.
 ## 13. Governing law and disputes
 
 This Agreement is governed by the laws of Ontario, Canada, excluding its conflict-of-laws rules, and the courts of that
-jurisdiction have exclusive jurisdiction over disputes arising from it — except that if
+jurisdiction have exclusive jurisdiction over disputes arising from it, except that if
 you are a consumer, you retain any right under local law to bring proceedings in, and be
 protected by the mandatory consumer laws of, your country of residence. The United
 Nations Convention on Contracts for the International Sale of Goods does not apply.

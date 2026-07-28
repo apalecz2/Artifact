@@ -7,7 +7,7 @@ macOS, the "App"), its marketing website, and its download service handle inform
 Anchor is developed and published by **Aiden Paleczny** ("we", "us"). Contact:
 **aiden.paleczny@gmail.com**.
 
-## 1. Information the App processes — locally only
+## 1. Information the App processes (locally only)
 
 Anchor's purpose is to extract structured tables from documents you choose (PDFs and
 images). Those documents may contain personal or sensitive information. All of the
@@ -32,14 +32,14 @@ recover, or delete them for you.
 
 The App makes network connections in exactly one situation: the **first-run setup
 download** (and any later re-download you initiate, e.g. after removing downloaded data).
-During setup, the App downloads the components it needs to work — the Tesseract OCR
+During setup, the App downloads the components it needs to work (the Tesseract OCR
 engine, the llama.cpp model server, the PDFium renderer, optional GPU runtime libraries,
-and AI model files (~3.5 GB total) — from:
+and AI model files, ~3.5 GB total) from:
 
 - `anchor-assets.aidenpaleczny.com`, a download mirror we operate on Cloudflare R2; with
 - `huggingface.co` as a fallback source for the model files.
 
-These requests **send no personal information and no document content** — they are plain
+These requests **send no personal information and no document content**; they are plain
 file downloads. Like any web server, the download service (operated on Cloudflare
 infrastructure) receives standard connection metadata (your IP address, user-agent, and
 the requested file) and may record it in short-lived operational logs used for serving
@@ -92,8 +92,8 @@ profiling. You may use the App entirely offline after setup.
 
 ## 7. Changes to this policy
 
-If Anchor ever gains features that change what this policy describes — for example crash
-reporting, update checks, payments, or any transmission of data off the device — this
+If Anchor ever gains features that change what this policy describes (for example crash
+reporting, update checks, payments, or any transmission of data off the device), this
 policy will be updated **before** that feature ships, with a new "last updated" date, and
 material changes will be highlighted in the release notes. The current version is always
 available at the URL where you are reading it and in the App's About screen.

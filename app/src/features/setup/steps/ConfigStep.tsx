@@ -30,7 +30,7 @@ export default function ConfigStep({ hardware, onNext, onBack }: Props): React.R
                 <h2 className="font-headline-lg text-headline-lg text-on-surface">Custom setup</h2>
                 <p className="font-body-md text-body-md text-on-surface-variant mt-1">
                     Pick which llama-server build to download. The option matched to your
-                    hardware is pre-selected — you can change it, and switch later by
+                    hardware is pre-selected, but you can change it, and switch later by
                     re-running setup if needed.
                 </p>
             </div>
@@ -95,7 +95,7 @@ export default function ConfigStep({ hardware, onNext, onBack }: Props): React.R
                     <div className="flex flex-col gap-1">
                         <p className="font-body-md text-body-md text-on-surface">{selectedWarning}</p>
                         <p className="font-body-sm text-body-sm text-on-surface-variant">
-                            You can still install it — this isn’t permanent, and you can re-run
+                            You can still install it. This isn’t permanent, and you can re-run
                             setup later to download a different build.
                         </p>
                     </div>

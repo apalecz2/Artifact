@@ -173,7 +173,7 @@ pub fn resolve_llama_server_path(app_handle: tauri::AppHandle) -> Result<String,
     if binary.exists() {
         Ok(binary.to_string_lossy().into_owned())
     } else {
-        Err("llama-server not found — run the setup wizard to download it.".into())
+        Err("llama-server not found. Run the setup wizard to download it.".into())
     }
 }
 
@@ -267,7 +267,7 @@ pub fn start_llama_server(
     let data_dir = resolve_data_dir(&app_handle)?;
     let llama_server_path = data_dir.join("binaries").join(llama_exe_name());
     if !llama_server_path.exists() {
-        return Err("llama-server not found — run the setup wizard to download it.".into());
+        return Err("llama-server not found. Run the setup wizard to download it.".into());
     }
 
     // Resolve the *effective* backend. The frontend passes its localStorage value,

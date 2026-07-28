@@ -40,7 +40,7 @@ export default class ErrorBoundary extends React.Component<Props, State> {
                 <Icon name="error" size={40} className="text-error" />
                 <h1 className="font-headline-md text-headline-md text-on-surface">Something went wrong</h1>
                 <p className="max-w-md font-body-md text-body-md text-on-surface-variant">
-                    The app hit an unexpected error and couldn't render this view. Your saved sessions are safe — reloading usually fixes it.
+                    The app hit an unexpected error and couldn't render this view. Your saved sessions are safe, and reloading usually fixes it.
                 </p>
                 {error.message && (
                     <pre className="max-w-md overflow-x-auto rounded-lg bg-surface-variant px-3 py-2 text-left font-mono text-xs text-on-surface-variant">

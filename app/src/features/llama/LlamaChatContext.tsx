@@ -156,7 +156,7 @@ export const LlamaChatProvider = ({ children }: { children: ReactNode }) => {
                 // Fail fast on a crashed process (bad GGUF, OOM) rather than waiting
                 // out the full timeout for a server that will never report healthy.
                 if (await getLlamaServerStatus() === 'exited') {
-                    setServerError('The model server exited while loading — the model file may be corrupt or there may not be enough free RAM. See logs/llama-server.log in the app data folder for details.');
+                    setServerError('The model server exited while loading. The model file may be corrupt or there may not be enough free RAM. See logs/llama-server.log in the app data folder for details.');
                     return false;
                 }
 
@@ -165,7 +165,7 @@ export const LlamaChatProvider = ({ children }: { children: ReactNode }) => {
                 await interruptibleSleep(1000, signal);
             }
 
-            setServerError('The model server did not finish loading in time. A large model on a slow disk can take a while — retry, or free up RAM and try again.');
+            setServerError('The model server did not finish loading in time. A large model on a slow disk can take a while, so retry, or free up RAM and try again.');
             return false;
         } catch (err) {
             setServerError(err instanceof Error ? err.message : 'Failed to start server.');

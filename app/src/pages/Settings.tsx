@@ -279,7 +279,7 @@ export default function Settings(): React.ReactElement {
                         />
                         <PathField
                             label="Multimodal projector path"
-                            hint="mmproj GGUF file — required for the vision pipeline"
+                            hint="mmproj GGUF file, required for the vision pipeline"
                             value={mmprojPath}
                             onChange={(v) => { setMmprojPath(v); setPathsSaved(false); }}
                             onBrowse={() => browseForGguf(setMmprojPath)}
@@ -433,7 +433,7 @@ export default function Settings(): React.ReactElement {
             <ConfirmDialog
                 open={confirmDeleteAll}
                 title="Delete all sessions?"
-                description="This permanently deletes every session and the data Anchor has copied for itself. It only touches the app's own data — your original attached files and any outputs you saved elsewhere are left untouched. This cannot be undone."
+                description="This permanently deletes every session and the data Anchor has copied for itself. It only touches the app's own data: your original attached files and any outputs you saved elsewhere are left untouched. This cannot be undone."
                 confirmLabel="Delete all"
                 onConfirm={handleDeleteAllSessions}
                 onCancel={() => setConfirmDeleteAll(false)}

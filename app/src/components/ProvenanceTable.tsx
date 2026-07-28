@@ -56,17 +56,17 @@ function hasOverlookedText(cell: ProvenanceCell): boolean {
 function cellTooltip(cell: ProvenanceCell): string {
     if (cell.verified) {
         return cell.edited
-            ? 'Manually corrected and verified — double-click to edit again'
-            : 'Manually verified against the source — double-click to edit';
+            ? 'Manually corrected and verified. Double-click to edit again'
+            : 'Manually verified against the source. Double-click to edit';
     }
     if (hasOverlookedText(cell)) {
-        return 'Blank cell, but unextracted text was found at this spot — click to see it in the source';
+        return 'Blank cell, but unextracted text was found at this spot. Click to see it in the source';
     }
     if (isEmptyCell(cell)) {
         return 'Blank cell';
     }
     if (cell.confidence.agreement === 'image_only') {
-        return 'No matching OCR word — value read from image only';
+        return 'No matching OCR word. Value read from image only';
     }
     // null llmMean = unscored (value arrived as a single boundary-merged token, so
     // the logprob reflects tokenization, not value certainty) — show it as such
@@ -75,7 +75,7 @@ function cellTooltip(cell: ProvenanceCell): string {
         ? `${(cell.confidence.llmMean * 100).toFixed(0)}%`
         : 'not scored';
     const ocrPct = cell.confidence.ocr != null ? `${cell.confidence.ocr.toFixed(0)}%` : 'N/A';
-    const prefix = cell.matchStatus === 'fuzzy' ? 'Approximate OCR match — verify value | ' : '';
+    const prefix = cell.matchStatus === 'fuzzy' ? 'Approximate OCR match, verify value | ' : '';
     return `${prefix}LLM confidence: ${llmStr} | OCR confidence: ${ocrPct}`;
 }
 
@@ -139,7 +139,7 @@ function CellBadges({ cell }: { cell: ProvenanceCell }) {
         return (
             <span
                 className="inline-flex shrink-0 items-center justify-center rounded-full bg-surface-variant px-1 text-[10px] font-medium leading-tight text-on-surface-variant"
-                title="Blank cell, but unextracted text was found here — click to review the source"
+                title="Blank cell, but unextracted text was found here. Click to review the source"
             >
                 !
             </span>
@@ -152,7 +152,7 @@ function CellBadges({ cell }: { cell: ProvenanceCell }) {
             {imageOnly && (
                 <span
                     className="inline-flex shrink-0 items-center justify-center rounded-full bg-surface-variant px-1 text-[10px] font-medium leading-tight text-on-surface-variant"
-                    title="No OCR match — source unverified"
+                    title="No OCR match, source unverified"
                 >
                     ?
                 </span>
@@ -160,7 +160,7 @@ function CellBadges({ cell }: { cell: ProvenanceCell }) {
             {fuzzy && (
                 <span
                     className="inline-flex shrink-0 items-center justify-center rounded-full bg-surface-variant px-1 text-[10px] font-medium leading-tight text-on-surface-variant"
-                    title="Approximate OCR match — value differs slightly from OCR"
+                    title="Approximate OCR match, value differs slightly from OCR"
                 >
                     ≈
                 </span>
@@ -168,7 +168,7 @@ function CellBadges({ cell }: { cell: ProvenanceCell }) {
             {!imageOnly && !fuzzy && cell.confidence.trust === 'low' && (
                 <span
                     className="inline-flex shrink-0 items-center justify-center rounded-full bg-surface-variant px-1 text-[10px] font-medium leading-tight text-on-surface-variant"
-                    title="Low confidence — verify against the source"
+                    title="Low confidence, verify against the source"
                 >
                     !
                 </span>

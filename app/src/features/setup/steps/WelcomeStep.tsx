@@ -18,10 +18,10 @@ const ASSETS = [
 function summarize(hw: HardwareInfo): string {
     const build = BACKEND_LABEL[hw.recommended_backend];
     if (hw.recommended_backend === 'cpu' || !hw.gpu_name) {
-        return `No compatible GPU detected — Anchor will install the ${build} build.`;
+        return `No compatible GPU detected. Anchor will install the ${build} build.`;
     }
     const vram = hw.vram_mb != null ? ` (${(hw.vram_mb / 1024).toFixed(1)} GB)` : '';
-    return `Detected ${hw.gpu_name}${vram} — Anchor will install the ${build} build.`;
+    return `Detected ${hw.gpu_name}${vram}. Anchor will install the ${build} build.`;
 }
 
 export default function WelcomeStep({ onAutomatic, onCustom }: Props): React.ReactElement {
@@ -120,7 +120,7 @@ export default function WelcomeStep({ onAutomatic, onCustom }: Props): React.Rea
 
             <p className="font-body-sm text-body-sm text-on-surface-variant">
                 All files are downloaded from Cloudflare R2 (primary) with HuggingFace as a
-                fallback for model files. Nothing is sent from your machine — downloads are
+                fallback for model files. Nothing is sent from your machine; downloads are
                 one-way.
             </p>
         </div>

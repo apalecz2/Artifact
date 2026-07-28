@@ -132,7 +132,7 @@ export const startLlamaServer = async () => {
         }
 
         if (!modelPath || !mmprojPath) {
-            throw new Error("Model paths not configured — run the setup wizard.");
+            throw new Error("Model paths not configured. Run the setup wizard.");
         }
 
         // The server binary path is resolved in Rust from AppData (not passed from

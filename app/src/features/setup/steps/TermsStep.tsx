@@ -32,12 +32,12 @@ const COPY: Record<ConsentContext, { heading: string; body: string }> = {
         heading: 'Updated terms & privacy',
         body: 'Anchor’s Terms of Use and Privacy Policy have changed since you last accepted them. '
             + 'Please review and accept the updated terms to keep using Anchor. Anchor is already '
-            + 'installed — accepting only records your consent, and your saved sessions are unaffected.',
+            + 'installed, so accepting only records your consent, and your saved sessions are unaffected.',
     },
     reconsent: {
         heading: 'Terms & privacy',
         body: 'Please review and accept the Terms of Use and Privacy Policy to continue using Anchor. '
-            + 'Anchor is already installed — accepting only records your consent, and your saved '
+            + 'Anchor is already installed, so accepting only records your consent, and your saved '
             + 'sessions are unaffected.',
     },
 };

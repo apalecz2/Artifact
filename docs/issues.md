@@ -14,15 +14,16 @@
 - npm ci from e2e ? doesn't work?
 - test pdfium cargo test 
 
-- monochrome app icon next to name in top left of side bar (?)
-
 - note on poor quality extractions -- "try fixing the OCR on the left for better results"
 
 - proof read all text
 
+- remove the fetches for styling from google fonts etc. to support no network claim
+     - build these dependencies in
 
-- Back and forward nav buttons
+
 - Full window tool bar (view, file, etc)
+     - add more tools beyond zoom (saving / exporting, etc)
 
 - arrow keys on the table to move around cells: left and right always skip to next issue, not just to the left or right cell
      - is this how it should behave?
@@ -31,10 +32,27 @@
 - toolbars should minimize tools to just icons when the width of that side is small
 
 
+- dark mode in the installation view (for reinstallation)
+
+
+- re verify all legal related content
+     - including how it is just in the app with notes on ai output
+
+
+- package.json name is app
+
+- no em dashes anywhere (many in installation steps rn)
+
+- do the terms and conditions need the user to have scrolled through them to accept?
+
+
 
 ### Website:
 - Use actual screenshots
 - Signed installers
+- focused ideal-customer profile
+     -  one or two lead use cases to anchor the hero/problem copy around (e.g. registrar offices processing transcripts)
+- monetization signal (add way to show this is monetizable)(?)
 
 
 
@@ -168,6 +186,27 @@ Added excel export support
      bytes; `useLlamaChat.ts` then re-`fetch`es the blob URL for the same bytes. Passing the
      bytes/base64 directly would drop the round-trip and make this path immune to
      `connect-src` regressions entirely.
+
+### Data / Storage
+
+1. **"Remove all data and quit" left `workspace.db` (+ `-wal`, `-shm`) behind in an otherwise
+   emptied AppData folder.** The wipe itself worked — binaries, models, tessdata, sessions and
+   logs were all gone — but the database reappeared with the same timestamp, and the folder it
+   needed came back with it.
+   - **Root cause:** `removeAllAppData` finished by emitting a session-change event, and
+     `AppLayout`'s sidebar answers that event by reloading its recent-session list. That calls
+     `getDb()`, and `Database.load` in tauri-plugin-sql does not merely *open* a file — it
+     `create_dir_all`s the app config dir and creates the database, after which `runMigrations`
+     writes the schema. So the wipe was undone from the frontend milliseconds after it
+     succeeded, and `std::process::exit` then killed the process before SQLite could checkpoint,
+     leaving the `-wal`/`-shm` siblings too.
+   - **Fix:** the event is gone (both wipe paths replace the UI wholesale, so nothing needed
+     it), *and* `db.ts` now has a seal — after a wipe, `getDb()` rejects instead of reopening,
+     so any caller (a listener, a timer, an in-flight promise) fails loudly rather than
+     silently re-creating the database. `unsealDb` restores it if the wipe failed outright.
+   - **Lesson for anything else that deletes app files:** deletion is not the end of the
+     operation. Ask what in the running app will notice, because a "read" through this plugin
+     is a write. Blocking the reopen at the source beats auditing every caller.
 
 ### UI / Frontend
 

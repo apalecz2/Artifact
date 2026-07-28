@@ -379,7 +379,7 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
                         <div className="mb-4 flex shrink-0 items-start gap-2 rounded-lg border border-outline-variant bg-surface-variant/40 px-3 py-2 text-sm text-on-surface-variant">
                             <Icon name="info" size={18} className="shrink-0" />
                             <span>
-                                This is an intermediate result — a quick first-pass extraction that may
+                                This is an intermediate result: a quick first-pass extraction that may
                                 contain inaccuracies. Continue with
                                 <span className="font-medium text-on-surface"> Format as Table </span>
                                 to re-extract using AI for a more accurate, structured result.
@@ -461,7 +461,7 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
                                     {extractionError
                                         ?? (contextOverflow
                                             ? 'This page is dense enough that it may not fit the model in a single pass, so some rows or columns could be missing. Consider splitting the page if the table looks incomplete.'
-                                            : 'The model reached its output limit, so this table may be missing trailing rows. Retrying re-runs with a larger output budget — it uses more memory and takes longer, so proceed with caution.')}
+                                            : 'The model reached its output limit, so this table may be missing trailing rows. Retrying re-runs with a larger output budget, which uses more memory and takes longer, so proceed with caution.')}
                                 </span>
                                 <button onClick={() => handleFormatTable(!extractionError && truncated)} className="shrink-0 font-medium underline hover:no-underline">Retry</button>
                             </div>
@@ -709,7 +709,7 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
                                             <div className="flex shrink-0 items-center gap-1 pr-2 mr-1 border-r border-outline-variant">
                                                 <button
                                                     aria-label="Edit cell value"
-                                                    title="Edit cell value (Enter) — or double-click the cell"
+                                                    title="Edit cell value (Enter), or double-click the cell"
                                                     onClick={() => setEditingCell(selectedCell ? { ...selectedCell } : null)}
                                                     className={iconBtnClass}
                                                     type="button"

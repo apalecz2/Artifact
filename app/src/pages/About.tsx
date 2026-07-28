@@ -304,7 +304,7 @@ function Troubleshooting(): React.ReactElement {
                     Sessions and cached page images live in the data folder above.{' '}
                     <Link to="/settings" className="text-primary underline underline-offset-2">Delete all sessions</Link>{' '}
                     clears them without touching your original files. The same section can remove
-                    everything Anchor downloaded — about 3.5 GB — including before uninstalling.
+                    everything Anchor downloaded (about 3.5 GB), including before uninstalling.
                 </>
             ),
         },
