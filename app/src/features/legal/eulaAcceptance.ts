@@ -22,6 +22,18 @@ export function hasAcceptedCurrentEula(): boolean {
     }
 }
 
+/** The EULA version the user last accepted, whatever it was — null if there is no
+ *  acceptance record at all. Unlike `hasAcceptedCurrentEula`, this survives a version
+ *  bump, which is what tells a re-consent run "the terms changed since you agreed"
+ *  apart from "we have never recorded your consent" (see TermsStep's copy). */
+export function acceptedEulaVersion(): string | null {
+    try {
+        return localStorage.getItem(VERSION_KEY);
+    } catch {
+        return null;
+    }
+}
+
 /** The ISO timestamp of the current acceptance, or null if not accepted. */
 export function eulaAcceptedAt(): string | null {
     try {

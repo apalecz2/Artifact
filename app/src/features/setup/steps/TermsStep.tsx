@@ -2,8 +2,12 @@ import React, { useRef, useState } from 'react';
 import Icon from '../../../components/Icon';
 import Markdown from '../../legal/Markdown';
 import { eulaMarkdown, privacyMarkdown } from '../../legal/legalContent';
+import type { ConsentContext } from '../types';
 
 interface Props {
+    /** Which run this is, which decides the heading and what the step may claim about
+     *  downloads — see COPY below. */
+    context: ConsentContext;
     /** Records acceptance and advances the wizard. */
     onAccept: () => void;
     /** Omitted when this is the only step (a post-update re-consent), where there is
@@ -13,13 +17,39 @@ interface Props {
 
 type Tab = 'terms' | 'privacy';
 
+/** The lead paragraph is per-context because the "nothing is downloaded until you
+ *  agree" assurance is only true on a first install. When the EULA version is bumped
+ *  the wizard re-runs as a consent-only step on a machine where the ~3.5 GB of assets
+ *  are already downloaded and have already been run, so promising that there would be
+ *  a false statement in the middle of the clickwrap. */
+const COPY: Record<ConsentContext, { heading: string; body: string }> = {
+    'first-install': {
+        heading: 'Terms & privacy',
+        body: 'Please review and accept the Terms of Use and Privacy Policy to continue. '
+            + 'Nothing will be downloaded or installed until you agree.',
+    },
+    'terms-updated': {
+        heading: 'Updated terms & privacy',
+        body: 'Anchor’s Terms of Use and Privacy Policy have changed since you last accepted them. '
+            + 'Please review and accept the updated terms to keep using Anchor. Anchor is already '
+            + 'installed — accepting only records your consent, and your saved sessions are unaffected.',
+    },
+    reconsent: {
+        heading: 'Terms & privacy',
+        body: 'Please review and accept the Terms of Use and Privacy Policy to continue using Anchor. '
+            + 'Anchor is already installed — accepting only records your consent, and your saved '
+            + 'sessions are unaffected.',
+    },
+};
+
 /**
- * Clickwrap consent, as a step of the setup wizard. It sits between Welcome and the
- * first download, so the user has seen what will be installed but nothing has been
- * fetched or executed yet — the wizard cannot advance past this step without an
- * explicit "I have read and agree" checkbox plus a Continue click.
+ * Clickwrap consent, as a step of the setup wizard. On a first install it sits between
+ * Welcome and the first download, so the user has seen what will be installed but
+ * nothing has been fetched or executed yet; after an `EULA_VERSION` bump it re-runs
+ * alone against an existing installation. Either way the wizard cannot advance past
+ * this step without an explicit "I have read and agree" checkbox plus a Continue click.
  */
-export default function TermsStep({ onAccept, onBack }: Props): React.ReactElement {
+export default function TermsStep({ context, onAccept, onBack }: Props): React.ReactElement {
     const [tab, setTab] = useState<Tab>('terms');
     const [agreed, setAgreed] = useState(false);
     const [declineHint, setDeclineHint] = useState(false);
@@ -51,10 +81,9 @@ export default function TermsStep({ onAccept, onBack }: Props): React.ReactEleme
     return (
         <div className="flex flex-col gap-6">
             <div>
-                <h2 className="font-headline-lg text-headline-lg text-on-surface">Terms &amp; privacy</h2>
+                <h2 className="font-headline-lg text-headline-lg text-on-surface">{COPY[context].heading}</h2>
                 <p className="font-body-md text-body-md text-on-surface-variant mt-1">
-                    Please review and accept the Terms of Use and Privacy Policy to continue.
-                    Nothing is downloaded or installed until you agree.
+                    {COPY[context].body}
                 </p>
             </div>
 

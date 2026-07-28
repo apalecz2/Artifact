@@ -1,4 +1,9 @@
 export type SetupStep = 'welcome' | 'terms' | 'config' | 'install' | 'complete';
+/** Why the consent step is being shown, which decides what TermsStep may truthfully
+ *  promise about downloads: only `first-install` runs precede any download.
+ *  `terms-updated` = assets installed, an older EULA version was accepted;
+ *  `reconsent`     = assets installed, no acceptance on record (e.g. cleared storage). */
+export type ConsentContext = 'first-install' | 'terms-updated' | 'reconsent';
 export type SetupMode = 'automatic' | 'custom';
 export type Backend = 'cpu' | 'cuda' | 'rocm' | 'metal';
 export type OS = 'windows' | 'macos' | 'linux';

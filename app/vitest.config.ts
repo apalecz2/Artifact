@@ -20,6 +20,10 @@ export default defineConfig({
             },
             {
                 plugins: [react()],
+                // Mirrors vite.config.ts: components that render the legal documents
+                // import them as ?raw from the repo root (../docs/legal), outside this
+                // project's root, which the dev server denies by default.
+                server: { fs: { allow: ['..'] } },
                 test: {
                     name: 'dom',
                     environment: 'jsdom',

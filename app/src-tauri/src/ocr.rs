@@ -61,9 +61,17 @@ impl Default for ProcessState {
 /// Request cancellation of any in-flight `process_document`. Bumping the generation
 /// is enough: the running job notices the change between pages and stops. A no-op
 /// when nothing is running (the next job reads the already-advanced value at entry).
+///
+/// Split from the command so other backend paths can request the same stop — the data
+/// wipe (`reset.rs`) must halt OCR before deleting, or the job writes page images back
+/// into a `sessions/` directory that was just removed.
+pub fn request_cancel_processing(state: &ProcessState) {
+    state.generation.fetch_add(1, Ordering::SeqCst);
+}
+
 #[tauri::command]
 pub fn cancel_process_document(state: tauri::State<'_, ProcessState>) {
-    state.generation.fetch_add(1, Ordering::SeqCst);
+    request_cancel_processing(&state);
 }
 
 #[derive(Serialize, Deserialize)]

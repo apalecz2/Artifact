@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import Icon from '../../components/Icon';
-import type { HardwareInfo, SetupConfig, SetupMode, SetupStep } from './types';
+import type { ConsentContext, HardwareInfo, SetupConfig, SetupMode, SetupStep } from './types';
+import { acceptedEulaVersion } from '../legal/eulaAcceptance';
 import WelcomeStep from './steps/WelcomeStep';
 import TermsStep from './steps/TermsStep';
 import ConfigStep from './steps/ConfigStep';
@@ -48,6 +49,13 @@ export default function SetupWizard({ eulaAccepted, onAcceptEula, installNeeded,
     // user is still walking the list.
     const [needsEula] = useState(!eulaAccepted);
     const [needsInstall] = useState(installNeeded);
+    // Also frozen: accepting rewrites the stored version, and this decides the consent
+    // step's copy. Only a run that still has to install may promise that nothing has
+    // been downloaded yet — after an EULA bump the assets are already on disk.
+    const [priorEulaVersion] = useState(acceptedEulaVersion);
+    const consentContext: ConsentContext = needsInstall
+        ? 'first-install'
+        : priorEulaVersion ? 'terms-updated' : 'reconsent';
 
     const [step, setStep] = useState<SetupStep>(needsInstall ? 'welcome' : 'terms');
     const [mode, setMode] = useState<SetupMode>('automatic');
@@ -129,6 +137,7 @@ export default function SetupWizard({ eulaAccepted, onAcceptEula, installNeeded,
                             )}
                             {step === 'terms' && (
                                 <TermsStep
+                                    context={consentContext}
                                     onAccept={acceptTerms}
                                     onBack={needsInstall ? () => setStep('welcome') : undefined}
                                 />

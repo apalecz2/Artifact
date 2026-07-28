@@ -82,7 +82,54 @@ async function initDb(): Promise<Database> {
     return db;
 }
 
+/** Error a query gets once the database has been sealed by the app-data wipe. */
+export const DB_SEALED_MESSAGE = 'Anchor’s data has been removed; the database is closed.';
+
+// Set by the wipe. `Database.load` does not merely open a file — tauri-plugin-sql
+// re-creates the app directory, the database, and (via runMigrations) its schema. So a
+// single query landing in the seconds a wipe takes, or in the moment between it and the
+// reload/exit, resurrects `workspace.db` with its `-wal`/`-shm` siblings inside a folder
+// the user was just told is empty. That is exactly what happened: the sidebar refreshes
+// its recent-session list on a session-change event (AppLayout), and it re-created the
+// database milliseconds after the deletion. Sealing blocks *every* such caller — event
+// listeners, timers, in-flight promises — instead of chasing them one at a time.
+let sealed = false;
+
 export function getDb(): Promise<Database> {
+    if (sealed) return Promise.reject(new Error(DB_SEALED_MESSAGE));
     if (!dbPromise) dbPromise = initDb();
     return dbPromise;
+}
+
+/** Refuse to (re)open the database until the webview reloads. Call before wiping the
+ *  app data; a reload — how both wipe paths end — starts a fresh module and clears it. */
+export function sealDb(): void {
+    sealed = true;
+}
+
+/** Undo `sealDb`, for a wipe that failed before deleting anything: the files are still
+ *  there, so the app should keep working rather than be left unable to query. */
+export function unsealDb(): void {
+    sealed = false;
+}
+
+/** Close the connection pool and forget it, so the next `getDb()` reconnects.
+ *
+ *  Needed before the app-data wipe (`appDataActions.ts`): the plugin keeps the pool
+ *  open for the life of the process, and Windows refuses to delete a file that is
+ *  still open — with the pool live, `workspace.db` would survive a "remove all data".
+ *  Safe to call when no pool was ever opened. */
+export async function closeDb(): Promise<void> {
+    const pending = dbPromise;
+    if (!pending) return;
+    // Cleared first: a caller that races in during `close()` must open a fresh pool
+    // rather than receive the one being torn down.
+    dbPromise = null;
+    const db = await pending.catch(() => null);
+    if (!db) return;
+    try {
+        await db.close();
+    } catch {
+        /* already closed / never connected — nothing left to release */
+    }
 }

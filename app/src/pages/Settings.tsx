@@ -5,6 +5,12 @@ import { eulaAcceptedAt } from '../features/legal/eulaAcceptance';
 import { useTheme } from '../hooks/useTheme';
 import { requestSetupRerun } from '../features/setup/useSetupCheck';
 import { deleteAllSessions } from '../features/sessions/sessionActions';
+import {
+    removeAllAppData,
+    planAfterRemoval,
+    quitApp,
+    type RemovalMode,
+} from '../features/settings/appDataActions';
 import ConfirmDialog from '../components/ConfirmDialog';
 import Icon from '../components/Icon';
 import PageContainer from '../components/PageContainer';
@@ -76,6 +82,66 @@ function PathField({ label, hint, value, onChange, onBrowse, disabled = false }:
     );
 }
 
+/* Shared button styling for the Data section. The filled variant marks the two
+   actions that end something outright (all sessions, the whole install); the outlined
+   one marks the reset, which puts the app back where it started rather than away. */
+const DESTRUCTIVE_FILLED =
+    'flex items-center gap-1.5 px-4 py-2 rounded-lg bg-error text-on-error font-label-md text-label-md hover:bg-error/90 transition-colors disabled:opacity-50 disabled:pointer-events-none';
+const DESTRUCTIVE_OUTLINED =
+    'flex items-center gap-1.5 px-4 py-2 rounded-lg border border-error/50 bg-surface-container text-error font-label-md text-label-md hover:bg-error/10 transition-colors disabled:opacity-50 disabled:pointer-events-none';
+
+/* The two removals run the identical wipe and differ only in what happens after, so
+   their copy is written together — neither may read as if it keeps more than the
+   other. Both name the ~3.5 GB explicitly: that download is the whole reason this
+   action exists (docs/release.md §6.4), and it is what a user reclaiming disk space
+   or uninstalling is actually looking for.
+
+   Each description states what is deleted in full rather than referring to the row
+   above it. Someone scanning for "how do I get my disk space back" reads one row, not
+   the section in order, and a description that only makes sense after its neighbour
+   leaves them guessing at what the other one keeps. The shared opening clause is
+   therefore repeated verbatim, not paraphrased: identical wording is what makes the
+   differing tail — return to setup, or close — the only thing the eye has to compare. */
+const REMOVAL_COPY: Record<RemovalMode, {
+    label: string;
+    description: string;
+    icon: string;
+    buttonLabel: string;
+    buttonClass: string;
+    dialogTitle: string;
+    dialogDescription: string;
+    confirmLabel: string;
+}> = {
+    reset: {
+        label: 'Reset Anchor',
+        description:
+            'Removes every session, your settings, and the OCR engine, AI model, and libraries downloaded during setup (about 3.5 GB), then returns to first-run setup so Anchor can download them again. Your original files and saved exports are left untouched.',
+        icon: 'settings_backup_restore',
+        buttonLabel: 'Reset',
+        buttonClass: DESTRUCTIVE_OUTLINED,
+        dialogTitle: 'Reset Anchor?',
+        dialogDescription:
+            'This deletes every session, your settings, and the roughly 3.5 GB of components downloaded during setup, then returns to first-run setup so they can be downloaded again. Your original files and any exports you saved elsewhere are left untouched. This cannot be undone.',
+        confirmLabel: 'Reset Anchor',
+    },
+    uninstall: {
+        label: 'Remove all data and quit',
+        description:
+            'Removes every session, your settings, and the OCR engine, AI model, and libraries downloaded during setup (about 3.5 GB), then closes Anchor. Do this before uninstalling: uninstalling removes the program, but leaves those downloaded components on this device.',
+        icon: 'power_settings_new',
+        buttonLabel: 'Remove and quit',
+        buttonClass: DESTRUCTIVE_FILLED,
+        dialogTitle: 'Remove all data and quit?',
+        dialogDescription:
+            'This deletes every session, your settings, and the roughly 3.5 GB of components downloaded during setup, then closes Anchor. Your original files and any exports you saved elsewhere are left untouched. Opening Anchor again starts first-run setup. This cannot be undone.',
+        confirmLabel: 'Remove and quit',
+    },
+};
+
+/** How long the "Removed 3.5 GB. Closing Anchor…" summary stays up before the app
+ *  exits: long enough to read, short enough that the app doesn't look hung. */
+const QUIT_DELAY_MS = 1400;
+
 export default function Settings(): React.ReactElement {
     const [theme, setTheme] = useTheme();
 
@@ -88,6 +154,14 @@ export default function Settings(): React.ReactElement {
     const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
     const [deleting, setDeleting] = useState(false);
     const [deleteResult, setDeleteResult] = useState<string | null>(null);
+
+    const [confirmRemoval, setConfirmRemoval] = useState<RemovalMode | null>(null);
+    const [removing, setRemoving] = useState(false);
+    const [removalResult, setRemovalResult] = useState<string | null>(null);
+
+    // One destructive action at a time: they all touch the same files, and a wipe
+    // racing a session delete would leave both reporting nonsense.
+    const busy = deleting || removing;
 
     const browseForGguf = async (setter: (path: string) => void) => {
         const { open } = await import('@tauri-apps/plugin-dialog');
@@ -123,6 +197,37 @@ export default function Settings(): React.ReactElement {
             setDeleteResult('Something went wrong while deleting sessions.');
         } finally {
             setDeleting(false);
+        }
+    };
+
+    const handleRemoveAllData = async (mode: RemovalMode) => {
+        setConfirmRemoval(null);
+        setRemoving(true);
+        setRemovalResult(null);
+        try {
+            const report = await removeAllAppData(mode);
+            if (report.failed.length > 0) console.warn('Could not remove:', report.failed);
+
+            const outcome = planAfterRemoval(report, mode);
+            if (outcome.next === 'stay') {
+                setRemovalResult(outcome.message);
+                setRemoving(false);
+                return;
+            }
+
+            // `removing` deliberately stays true from here: the buttons are inert for
+            // the moment before the webview reloads or the process exits.
+            if (outcome.next === 'reload') {
+                window.location.reload();
+                return;
+            }
+
+            setRemovalResult(outcome.message);
+            setTimeout(() => { void quitApp(); }, QUIT_DELAY_MS);
+        } catch (error) {
+            console.error('Failed to remove app data:', error);
+            setRemovalResult('Something went wrong while removing app data. Nothing else was changed.');
+            setRemoving(false);
         }
     };
 
@@ -253,15 +358,39 @@ export default function Settings(): React.ReactElement {
                                 <button
                                     type="button"
                                     onClick={() => { setDeleteResult(null); setConfirmDeleteAll(true); }}
-                                    disabled={deleting}
-                                    className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-error text-on-error font-label-md text-label-md hover:bg-error/90 transition-colors disabled:opacity-50 disabled:pointer-events-none"
+                                    disabled={busy}
+                                    className={DESTRUCTIVE_FILLED}
                                 >
                                     <Icon name="delete_forever" size={16} />
                                     {deleting ? 'Deleting…' : 'Delete all'}
                                 </button>
                             </div>
                         </SettingRow>
+
+                        {/* The two whole-install removals. Rendered from one table so the
+                            pair can't drift into describing different amounts of data. */}
+                        {(Object.keys(REMOVAL_COPY) as RemovalMode[]).map((mode) => {
+                            const copy = REMOVAL_COPY[mode];
+                            return (
+                                <SettingRow key={mode} label={copy.label} description={copy.description}>
+                                    <button
+                                        type="button"
+                                        onClick={() => { setRemovalResult(null); setConfirmRemoval(mode); }}
+                                        disabled={busy}
+                                        className={copy.buttonClass}
+                                    >
+                                        <Icon name={copy.icon} size={16} />
+                                        {removing ? 'Removing…' : copy.buttonLabel}
+                                    </button>
+                                </SettingRow>
+                            );
+                        })}
                     </div>
+                    {removalResult && (
+                        <p className="font-body-sm text-body-sm text-on-surface-variant px-1" role="status">
+                            {removalResult}
+                        </p>
+                    )}
                 </Section>
 
                 {/* ── Legal ── */}
@@ -309,6 +438,17 @@ export default function Settings(): React.ReactElement {
                 onConfirm={handleDeleteAllSessions}
                 onCancel={() => setConfirmDeleteAll(false)}
             />
+
+            {confirmRemoval && (
+                <ConfirmDialog
+                    open
+                    title={REMOVAL_COPY[confirmRemoval].dialogTitle}
+                    description={REMOVAL_COPY[confirmRemoval].dialogDescription}
+                    confirmLabel={REMOVAL_COPY[confirmRemoval].confirmLabel}
+                    onConfirm={() => { void handleRemoveAllData(confirmRemoval); }}
+                    onCancel={() => setConfirmRemoval(null)}
+                />
+            )}
         </>
     );
 }

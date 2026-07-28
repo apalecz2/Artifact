@@ -31,7 +31,7 @@ Verified 2026-07-27 (GitHub API + HTTP checks against the live site).
 | **Microsoft Store** | ❌ Not started — no Partner Center account, no reserved name, no MSIX packaging. Website leaves the Store link empty by design. |
 | **Legal/compliance** | ✅ Effectively done: `LICENSE` (Elastic-2.0), `NOTICES.md` (incl. CUDA runtime), `SECURITY.md`, `docs/legal/PRIVACY.md` + `EULA.md` published on the site, first-run clickwrap EULA gate, in-app legal viewer, Qwen model verified Apache-2.0 for R2 redistribution. |
 | **Packaged-build gate** | ✅ **Passed.** The old "does llama-server start in a built release" blocker is resolved — v0.2.0 was built, released, and the CSP fix from [issues.md](issues.md) (Build/Packaging #1) came out of running the packaged app end-to-end. |
-| **Data removal** | ❌ No "remove all downloaded data" action. Settings has *Delete all sessions* only; the ~3.5 GB of AppData assets survive uninstall (§6.4). |
+| **Data removal** | ✅ Settings ▸ Data has *Reset Anchor* (wipe → first-run setup) and *Remove all data and quit* (wipe → exit, for uninstalling), alongside *Delete all sessions*. Both clear AppData, the database, and the OCR scratch cache ([reset.rs](../app/src-tauri/src/reset.rs)); §6.4 still needs the MSIX-uninstall half verified on a VM. |
 | **In-app updater** | ❌ None. Tauri's updater is not configured (the `.app.tar.gz` asset is its artifact, currently unused). Users re-download to update. |
 
 **What this means:** the old docs' central premise — "the packaged build is unverified and
@@ -113,11 +113,23 @@ covering SmartScreen (**More info → Run anyway**) and macOS
 (right-click → **Open**, or `xattr -d com.apple.quarantine /Applications/Anchor.app`).
 Delete it once both platforms are signed.
 
-### N5 — "Remove all downloaded data" · ~½ day
-Uninstalling leaves ~3.5 GB of models/binaries plus the SQLite DB and page-image cache in
-AppData. This is a trust issue today and a **hard Store requirement** later (Policy 10.2.7,
-§6.4). Settings already owns *Delete all sessions* — add a sibling action that clears the
-whole app-data directory, and (Windows) consider an NSIS uninstall hook.
+### N5 — "Remove all downloaded data" · ✅ done (in-app half)
+Uninstalling left ~3.5 GB of models/binaries plus the SQLite DB and page-image cache in
+AppData — a trust issue, and a **hard Store requirement** (Policy 10.2.7, §6.4).
+
+Shipped: two sibling actions beside *Delete all sessions* in Settings ▸ Data, both backed by
+[reset.rs](../app/src-tauri/src/reset.rs) — *Reset Anchor* (wipe, then return to first-run
+setup) and *Remove all data and quit* (wipe, then exit, so an uninstall leaves nothing).
+The wipe stops llama-server and cancels OCR/downloads first (the GGUF is memory-mapped, and
+Windows will not delete an open file), clears the AppData **and** config directories plus the
+`ocr` cache subtree, and the frontend closes the SQLite pool before it and clears webview
+storage after. Partial failures are reported per path rather than swallowed.
+
+Deliberately **not** wiped: the WebView2 profile under `%LOCALAPPDATA%\<identifier>`, which is
+live while the app runs — it holds settings only, and those are cleared from JS.
+
+Still open: (a) confirm on a VM what MSIX/NSIS uninstall clears on its own, and (b) decide
+whether to add an NSIS uninstall hook now that the in-app path exists.
 
 ### N6 — Microsoft Store (MSIX) · ~1–2 weeks including review
 The remaining distribution milestone: free signing, one-click install, auto-update, reach,
@@ -353,7 +365,7 @@ Two facts shape the whole effort:
 | **10.2.2** no undisclosed dynamic code | Downloads *are* the described functionality; each is SHA-256-pinned and verified before use (`download_file` in [setup.rs](../app/src-tauri/src/setup.rs)). | ✅ Compliant — say so in cert notes. |
 | **10.2.9** standalone installer | The installer installs a complete runnable app; the 3.5 GB fetch happens at *first run*, not during install. **Never move app code into a post-install fetch.** | ✅ Compliant. |
 | **10.2** signing | Store signs the MSIX on ingestion. (Fallback path requires the installer *and every installed PE* to be signed — see §5.1.) | ✅ N/A for MSIX. |
-| **10.2.7** clean uninstall | Must enable removal of everything, incl. the downloaded GB. | ❌ **Gap — N5.** |
+| **10.2.7** clean uninstall | Must enable removal of everything, incl. the downloaded GB. | ✅ In-app *Remove all data and quit* (N5); 🔶 confirm what MSIX uninstall clears on a VM (§6.4). |
 | **10.5.1** privacy policy URL | Mandatory for Win32/packaged products. | ✅ Live at https://anchor.aidenpaleczny.com/privacy |
 | **11.16** generative-AI | Declare live GenAI in Partner Center + listing; provide a report path. | ✅ In-app note + EULA §3 + `SECURITY.md` contact exist; 🔶 tick the declaration at submission. |
 | **11.2** licensing/attribution | Third-party components properly licensed and attributed. | ✅ `NOTICES.md` + in-app Licenses screen + `/licenses`; Qwen verified Apache-2.0 (base + unsloth GGUF) for R2 redistribution. |
@@ -366,9 +378,9 @@ Two facts shape the whole effort:
 
 MSIX uninstall removes the package, but the wizard's downloads live in the (virtualized)
 app-data directory and may persist. Leaving multiple GB behind is exactly what this policy
-targets. Fix order: (1) in-app **"Remove all downloaded data"** in Settings — N5, and
-(2) confirm during VM testing what MSIX uninstall actually clears; disclose whatever
-remains in the listing.
+targets. Fix order: (1) ✅ in-app **"Remove all downloaded data"** in Settings — N5, shipped
+as *Remove all data and quit*; and (2) confirm during VM testing what MSIX uninstall
+actually clears; disclose whatever remains in the listing, pointing at the in-app action.
 
 ### 6.5 Listing copy to paste
 
@@ -396,7 +408,7 @@ local model server as child processes."*
 | Load/spawn or AppData path fails under package identity | **Medium** | VM-test early (§7); `runFullTrust`; fall back to 10.2.9 rather than fighting the package. |
 | Reviewer reads the 3.5 GB download as undisclosed dynamic code (10.2.2) | Medium | Disclosure first line + cert notes + SHA-256 verification. |
 | MSIX packaging effort (no Tauri bundler) | Medium | Budget the manual `makeappx` pass; §6.2. |
-| AppData not removed on uninstall (10.2.7) | Medium | N5 before submitting. |
+| AppData not removed on uninstall (10.2.7) | Low | ✅ N5 shipped (in-app *Remove all data and quit*); confirm the MSIX side on a VM and disclose it. |
 | Name "Anchor" already taken (10.1.1) | Medium | Reserve early; fallback title ready. |
 
 ### 6.7 Shipping a Store update
@@ -437,7 +449,11 @@ install/uninstall/path checks stay manual.
 - [ ] Offline after setup: disconnect, restart, extract.
 - [ ] Crash/recovery: kill `llama-server` mid-extraction → error surfaces, next launch reaps
       the orphan, cancelled/partial state recovers.
-- [ ] Uninstall: confirm what remains and that the in-app removal (N5) clears the GB.
+- [ ] Settings ▸ Data: *Remove all data and quit* empties the AppData folder (check the
+      folder itself is gone, ~3.5 GB reclaimed), and *Reset Anchor* lands back in the wizard
+      with a working database.
+- [ ] Uninstall **after** that: confirm nothing of consequence remains, and note what the
+      uninstaller leaves when run without the in-app removal first.
 - [ ] Low-spec machine messages gracefully instead of failing silently (10.4.1).
 
 ---

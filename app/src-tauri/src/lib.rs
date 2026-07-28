@@ -10,6 +10,7 @@ mod llama;
 mod menu;
 mod ocr;
 mod paths;
+mod reset;
 mod setup;
 mod zoom;
 
@@ -121,6 +122,9 @@ pub fn run() {
             export::export_xlsx,
             // About / diagnostics
             install::get_install_info,
+            // Data removal (Settings ▸ Data)
+            reset::remove_all_app_data,
+            reset::quit_app,
             // Title bar / View menu
             zoom::set_app_zoom,
             zoom::get_app_zoom,

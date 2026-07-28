@@ -209,6 +209,22 @@ Two new keys are added alongside the existing settings:
 
 The existing `modelPath` and `mmprojPath` keys, previously empty strings by default, are populated by the wizard with their AppData locations.
 
+### 7.6 Data Removal (the inverse of setup)
+
+Because the wizard puts ~3.5 GB outside the install directory, the app has to be able to take it back out: no uninstaller of ours touches AppData, and leaving multiple GB behind after an uninstall is both a trust problem and a Microsoft Store requirement (policy 10.2.7 — [release.md](release.md) §6.4). Settings ▸ Data therefore offers two whole-install actions beside the existing *Delete all sessions*, both backed by `reset.rs`:
+
+- **Reset Anchor** — wipe, then return to first-run setup, as if freshly installed.
+- **Remove all data and quit** — the same wipe, then close, for uninstalling.
+
+They run the identical wipe and differ only in the aftermath. Key properties:
+
+- **Quiesce before deleting.** The wipe first stops `llama-server`, cancels any in-flight OCR job, and advances the setup generation. This is load-bearing, not tidy: the GGUF is memory-mapped by the server, and Windows refuses to delete an open or mapped file at all. Cancelling OCR/downloads likewise stops a worker from writing a page image (or a `.part`) back into a directory that has just been removed. The frontend closes the SQLite pool before invoking, for the same reason.
+- **Seal the database, don't just close it.** `Database.load` in `tauri-plugin-sql` re-creates the app directory, the database file, and (via `runMigrations`) the schema — so any query arriving during or just after the wipe silently resurrects `workspace.db` in the folder that was just emptied. The frontend therefore *seals* the module (`db.ts`) before wiping: `getDb()` rejects until the webview reloads. Emitting a session-change event after a wipe is specifically wrong for the same reason — every listener answers it by querying (see `issues.md` § Data/Storage).
+- **Scope.** The AppData directory and the config directory (where `tauri-plugin-sql` resolves `sqlite:workspace.db`; the same folder on both supported platforms, resolved separately anyway), plus the `ocr` scratch subtree of the cache directory. Deliberately *not* the cache directory itself: on Windows that resolves to `%LOCALAPPDATA%\<identifier>`, which also holds the **live** WebView2 profile — deleting that under the running webview is impossible (locked) and destabilizing. The only user data the webview holds is settings, which the frontend clears from `localStorage` as part of the same action.
+- **Entry-by-entry, with retries.** Each top-level entry is removed independently and retried a few times over ~1s, so a transient lock (a handle released microseconds ago, an AV scanner on the just-closed GGUF) resolves itself and a genuinely stuck file costs that file rather than the whole wipe. Anything that survives is reported by path, with the bytes actually reclaimed — a partial wipe is surfaced, never reported as success, and neither the reload nor the quit happens after one.
+- **Recreate only for reset.** The directories are re-created empty on the reset path, because the process keeps running and `tauri-plugin-sql` creates its directory only at startup — a reload into the wizard would otherwise fail to reopen the database. The quit path leaves them gone.
+- **Quitting skips Tauri's exit hooks** (`std::process::exit`): `AppHandle::exit` would let `tauri-plugin-window-state` run its save-on-exit hook, recreating the AppData directory with a fresh `.window-state.json` moments after the wipe emptied it. Nothing else needs a graceful shutdown by then — the server is stopped and the database pool is closed.
+
 ---
 
 ## 8. Future Roadmap & Optional Features
