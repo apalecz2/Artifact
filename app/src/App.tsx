@@ -10,7 +10,6 @@ import Search from './pages/Search';
 import Legal from './pages/Legal';
 import SetupWizard from './features/setup/SetupWizard';
 import { useSetupCheck, clearSetupRerun } from './features/setup/useSetupCheck';
-import FirstRunEula from './features/legal/FirstRunEula';
 import { useEulaAcceptance } from './features/legal/eulaAcceptance';
 
 // The `HashRouter` itself lives in `AppShell`, one level up, so the title bar's
@@ -31,16 +30,13 @@ function AppRouter() {
 }
 
 export default function App() {
-    // The EULA gate is checked first and synchronously: the user must accept before
-    // the setup wizard downloads and runs any third-party binaries -- before
-    // reaching the app at all. Re-shown only if they've never accepted the current
-    // EULA version (see eulaAcceptance.ts).
+    // Consent and installation are two steps of one wizard, not two screens: the app
+    // is withheld until both are satisfied. The EULA is still gated ahead of every
+    // download -- the wizard orders its own steps that way (see SetupWizard). Consent
+    // is re-asked only if the user has never accepted the current EULA version, in
+    // which case the wizard may consist of that step alone (see eulaAcceptance.ts).
     const { accepted, accept } = useEulaAcceptance();
     const { isComplete, isLoading } = useSetupCheck();
-
-    if (!accepted) {
-        return <FirstRunEula onAccept={accept} />;
-    }
 
     if (isLoading) {
         return (
@@ -50,8 +46,15 @@ export default function App() {
         );
     }
 
-    if (!isComplete) {
-        return <SetupWizard onComplete={() => { clearSetupRerun(); window.location.reload(); }} />;
+    if (!accepted || !isComplete) {
+        return (
+            <SetupWizard
+                eulaAccepted={accepted}
+                onAcceptEula={accept}
+                installNeeded={!isComplete}
+                onComplete={() => { clearSetupRerun(); window.location.reload(); }}
+            />
+        );
     }
 
     return <AppRouter />;

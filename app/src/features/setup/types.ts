@@ -1,4 +1,4 @@
-export type SetupStep = 'welcome' | 'config' | 'install' | 'complete';
+export type SetupStep = 'welcome' | 'terms' | 'config' | 'install' | 'complete';
 export type SetupMode = 'automatic' | 'custom';
 export type Backend = 'cpu' | 'cuda' | 'rocm' | 'metal';
 export type OS = 'windows' | 'macos' | 'linux';

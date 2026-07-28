@@ -2,60 +2,89 @@ import React, { useState } from 'react';
 import Icon from '../../components/Icon';
 import type { HardwareInfo, SetupConfig, SetupMode, SetupStep } from './types';
 import WelcomeStep from './steps/WelcomeStep';
+import TermsStep from './steps/TermsStep';
 import ConfigStep from './steps/ConfigStep';
 import DownloadStep from './steps/DownloadStep';
 import CompleteStep from './steps/CompleteStep';
 
 interface Props {
+    /** False when the user has not accepted the current EULA version, which adds the
+     *  Terms step to the run. Owned by App so it can gate the app itself. */
+    eulaAccepted: boolean;
+    /** Records acceptance (version + timestamp). */
+    onAcceptEula: () => void;
+    /** False when the assets are already installed and this run exists only to
+     *  collect consent for a bumped EULA — then Terms is the whole wizard. */
+    installNeeded: boolean;
     onComplete: () => void;
 }
 
 const STEP_LABELS: Record<SetupStep, string> = {
     welcome:  'Welcome',
+    terms:    'Terms',
     config:   'Configure',
     install:  'Install',
     complete: 'Complete',
 };
 
-// Automatic setup skips the Configure step — the progress bar reflects whichever
-// path the user picked on the welcome screen. Download + verify + install are now a
-// single step (the hash is checked during the download, so there's no separate pass).
-function stepsForMode(mode: SetupMode): SetupStep[] {
-    return mode === 'custom'
-        ? ['welcome', 'config', 'install', 'complete']
-        : ['welcome', 'install', 'complete'];
+// The consent gate is a step of this wizard rather than a separate screen, so the
+// user sees one numbered list from launch to launch — but it must stay *ahead* of
+// `install`, since acceptance is required before anything is downloaded or run.
+// Automatic setup skips Configure, and an already-accepted EULA skips Terms, so the
+// progress bar reflects whichever path this run actually takes. Download + verify +
+// install are a single step (the hash is checked during the download, so there's no
+// separate pass).
+function stepsFor(mode: SetupMode, needsEula: boolean, needsInstall: boolean): SetupStep[] {
+    if (!needsInstall) return ['terms'];
+    const steps: SetupStep[] = ['welcome'];
+    if (needsEula) steps.push('terms');
+    if (mode === 'custom') steps.push('config');
+    return [...steps, 'install', 'complete'];
 }
 
-export default function SetupWizard({ onComplete }: Props): React.ReactElement {
-    const [step, setStep] = useState<SetupStep>('welcome');
+export default function SetupWizard({ eulaAccepted, onAcceptEula, installNeeded, onComplete }: Props): React.ReactElement {
+    // Both are frozen at mount: accepting the EULA flips `eulaAccepted` mid-run, and
+    // recomputing from it would drop the Terms pill out of the progress bar while the
+    // user is still walking the list.
+    const [needsEula] = useState(!eulaAccepted);
+    const [needsInstall] = useState(installNeeded);
+
+    const [step, setStep] = useState<SetupStep>(needsInstall ? 'welcome' : 'terms');
     const [mode, setMode] = useState<SetupMode>('automatic');
     const [hardware, setHardware] = useState<HardwareInfo | null>(null);
     const [config, setConfig] = useState<SetupConfig | null>(null);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-    const stepOrder = stepsForMode(mode);
+    const stepOrder = stepsFor(mode, needsEula, needsInstall);
     const currentIdx = stepOrder.indexOf(step);
 
     const handleError = (msg: string) => setErrorMsg(msg);
 
     // One-click automatic path: take the hardware-recommended backend and jump
-    // straight to downloading, skipping the Configure step entirely.
+    // straight to consent + downloading, skipping the Configure step entirely.
     const startAutomatic = (info: HardwareInfo) => {
         setHardware(info);
         setMode('automatic');
         setConfig({ backend: info.recommended_backend });
-        setStep('install');
+        setStep(needsEula ? 'terms' : 'install');
     };
 
     const startCustom = (info: HardwareInfo) => {
         setHardware(info);
         setMode('custom');
-        setStep('config');
+        setStep(needsEula ? 'terms' : 'config');
+    };
+
+    const acceptTerms = () => {
+        onAcceptEula();
+        // Consent-only run: App drops the wizard as soon as acceptance is recorded.
+        if (needsInstall) setStep(mode === 'custom' ? 'config' : 'install');
     };
 
     return (
         <div className="h-full bg-surface flex flex-col">
-            {/* Step progress bar */}
+            {/* Step progress bar — pointless when consent is the only step */}
+            {stepOrder.length > 1 && (
             <div className="border-b border-outline-variant bg-surface-container px-8 py-4">
                 <div className="max-w-2xl mx-auto flex items-center gap-2">
                     {stepOrder.map((s, idx) => {
@@ -86,6 +115,7 @@ export default function SetupWizard({ onComplete }: Props): React.ReactElement {
                     })}
                 </div>
             </div>
+            )}
 
             {/* Step content */}
             <div className="flex-1 overflow-y-auto flex items-start justify-center p-8">
@@ -96,6 +126,12 @@ export default function SetupWizard({ onComplete }: Props): React.ReactElement {
                         <>
                             {step === 'welcome' && (
                                 <WelcomeStep onAutomatic={startAutomatic} onCustom={startCustom} />
+                            )}
+                            {step === 'terms' && (
+                                <TermsStep
+                                    onAccept={acceptTerms}
+                                    onBack={needsInstall ? () => setStep('welcome') : undefined}
+                                />
                             )}
                             {step === 'config' && hardware && (
                                 <ConfigStep
