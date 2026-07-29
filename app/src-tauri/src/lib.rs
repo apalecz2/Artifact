@@ -30,6 +30,18 @@ pub(crate) const MAIN_WINDOW_LABEL: &str = "main";
 /// dir. Its presence is how we detect whether this is a first launch.
 const WINDOW_STATE_FILENAME: &str = ".window-state.json";
 
+/// Logical size the UI is designed around — mirrors the window size in
+/// `tauri.conf.json`. Below roughly this width the layout starts folding: the
+/// sidebar stops reserving its gutter and overlays the content (`AppLayout`, at
+/// Tailwind's `md`), and the session's two panes drop under `SplitLayout`'s
+/// 360px floor.
+const DEFAULT_WINDOW_SIZE: (f64, f64) = (1200.0, 800.0);
+
+/// Most of the monitor's work area a first-run window may occupy, so a window
+/// sized down to fit a small screen still reads as a window rather than filling
+/// it edge to edge.
+const FIRST_RUN_MAX_FILL: f64 = 0.92;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // macOS gets the system menu bar; every other platform draws its own title
@@ -59,9 +71,18 @@ pub fn run() {
             }
 
             // On first launch there is no saved window state for the window-state
-            // plugin to restore, so size the window to half the current monitor and
-            // center it. Subsequent launches are handled by the plugin, which
-            // restores the last size/position the user left.
+            // plugin to restore, so open at the size the UI was designed for,
+            // shrinking only as far as this monitor requires. Subsequent launches
+            // are handled by the plugin, which restores the last size/position the
+            // user left.
+            //
+            // All of this is done in *logical* pixels, which is the whole point:
+            // `monitor.size()` is physical, so sizing from it directly divides the
+            // window by the display's scale factor a second time — a 1200-logical
+            // window becomes 800 CSS px at 150% and 600 at 200%, meaning the
+            // sharper the user's display, the more squished the app opened. Every
+            // measurement the layout cares about is a CSS pixel, so convert once
+            // here and stay in that space.
             let has_saved_state = app
                 .path()
                 .app_config_dir()
@@ -70,10 +91,23 @@ pub fn run() {
             if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
                 if !has_saved_state {
                     if let Ok(Some(monitor)) = window.current_monitor() {
-                        let screen = monitor.size();
-                        let half = tauri::PhysicalSize::new(screen.width / 2, screen.height / 2);
-                        let _ = window.set_size(half);
-                        let _ = window.center();
+                        let scale = monitor.scale_factor();
+                        // Work area, not monitor size: it excludes the taskbar,
+                        // the dock and the macOS menu bar.
+                        let area = monitor.work_area();
+                        let avail = area.size.to_logical::<f64>(scale);
+                        let (design_w, design_h) = DEFAULT_WINDOW_SIZE;
+                        let width = design_w.min(avail.width * FIRST_RUN_MAX_FILL);
+                        let height = design_h.min(avail.height * FIRST_RUN_MAX_FILL);
+                        let _ = window.set_size(tauri::LogicalSize::new(width, height));
+                        // Centered within the work area rather than the monitor
+                        // (`window.center()`), so a window sized to nearly fill a
+                        // small screen doesn't end up tucked under the taskbar.
+                        let origin = area.position.to_logical::<f64>(scale);
+                        let _ = window.set_position(tauri::LogicalPosition::new(
+                            origin.x + (avail.width - width) / 2.0,
+                            origin.y + (avail.height - height) / 2.0,
+                        ));
                     }
                 }
                 // Drop the OS title bar so `TitleBar.tsx` can draw its own with
