@@ -12,8 +12,6 @@
 - dark mode in the installation view (for reinstallation)
 - Full window tool bar (view, file, etc)
   - add more tools beyond zoom (saving / exporting, etc)
-- arrow keys on the table to move around cells: left and right always skip to next issue, not just to the left or right cell
-  - is this how it should behave?
 - Move the info button for each side of the session to the header, with an option to collapse that pannel
 - note on poor quality extractions -- "try fixing the OCR on the left for better results"
 
@@ -46,12 +44,10 @@
 
 ## Backlog
 
-- more in depth speadsheet editor. to delete cells etc and merge left right etc
 - Right side of session as single page, chat menu type interface with the raw output and table pinned to the top
   - this shows the history of extraction, if the user did any reextractions to show the old ones in a chronological ordering
   - then also their chat messages to make edits, with the table before and after
   - The "saved in app" stuff could go in the header for everything in the session
-- Add a select multiple option to mark many cells as viewed at once
 - Eventually probably a vs code style work area that can be configured however the user chooses
 
 version 2 and later:
@@ -211,6 +207,48 @@ Added excel export support
      time. An add/edit/delete elsewhere on the page no longer shifts a cell onto the wrong
      box; a since-deleted source word resolves to no highlight rather than a wrong/broken
      box. Covered by reorder/delete cases in `provenance.test.ts`.
+
+2. **The formatted table was read-only apart from single-cell edits** — a value the model
+   split across two cells, a row shifted a column out of alignment, a junk row, or a
+   duplicated column all had to be fixed after export, in another program. Three separate
+   entries asked for the same thing: a fuller spreadsheet editor (delete cells, merge
+   left/right), a way to mark many cells checked at once, and cell-by-cell arrow keys.
+   - **Resolved** with a table editor over the same provenance grid
+     (`features/extraction/tableEdits.ts` for the pure transforms, `useTableEditor.ts` for
+     selection/history, `pages/session/tableCommands.ts` for the menus). Range selection
+     (drag, Shift+click/arrows, row/column handles, Ctrl+A) drives bulk mark-as-checked,
+     clear, copy/cut/paste (TSV, so it round-trips with Excel/Sheets); the structural
+     commands are insert/delete/move rows and columns, join cells or whole columns, and
+     delete/insert cells with a left/right shift for a misaligned row. Everything is
+     undoable (Ctrl+Z, 50 deep, cleared per page).
+   - Every command is a **pure grid transform** returning a rectangular, re-indexed grid,
+     committed through the one existing write path (`Session.applyCellUpdate`), so
+     click-to-highlight, the review worklist, confidence rendering and persistence needed
+     no special cases. Structural edits keep each cell's `wordIds`, so a moved or joined
+     cell still highlights its source words on the page.
+   - **Arrow keys now move one cell** in all four directions (Shift extends the selection).
+     Stepping between flagged cells moved to Alt+←/→ and F3 — the toolbar chevrons were
+     always the primary path, and an editable table has to let you walk it.
+   - Keyboard/paste act on the table only while the last click landed in the output pane —
+     without that gate a Delete pressed while correcting OCR on the left would silently
+     clear cells on the right.
+   - The window title bar's **Edit menu** (Undo/Redo/Cut/Copy/Paste/Select All) used to run
+     `document.execCommand` unconditionally, which acts on the focused *text field* — so
+     with the table focused every one of those items was dead. A surface can now claim them
+     while focused (`lib/editTarget.ts`), and the rows report its real availability instead
+     of standing enabled over an empty undo stack. Not wired on macOS, whose Edit items are
+     Tauri's predefined native ones and can't be intercepted from the frontend.
+   - **Paste raised a browser permission prompt** ("localhost:1420 wants to see text and
+     images copied to the clipboard", Block/Allow) — an on-device app asking the user's
+     permission to read their own clipboard, which reads as a web page, not a desktop app.
+     Cause: `navigator.clipboard.readText()` is a *web* API, so the webview gates it behind
+     Chromium's `clipboard-read` permission; it is not specific to the dev origin and would
+     have shipped. **Resolved** by reading through `tauri-plugin-clipboard-manager` instead
+     (`readClipboardText` in `utils/clipboard.ts`), which asks the OS from Rust and never
+     prompts; the web API stays as the fallback for a plain `vite dev` with no backend.
+     Only `allow-read-text` is granted. Writes were never affected — `navigator.clipboard
+     .write` is granted outright for a focused document acting on a user gesture — so the
+     copy path keeps the web API, which is what lets it offer HTML alongside plain text.
 
 ### Provenance / Matching
 

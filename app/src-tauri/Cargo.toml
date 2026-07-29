@@ -34,6 +34,11 @@ tauri-plugin-sql = { version = "2.4.0", features = ["sqlite"] }
 tauri-plugin-dialog = "2"
 # Persist & restore window size/position across launches
 tauri-plugin-window-state = "2"
+# Read the clipboard through the OS. `navigator.clipboard.readText()` is a *web*
+# API, so the webview raises Chromium's "wants to see text and images copied to
+# the clipboard" permission prompt — which a local desktop app has no business
+# showing. Only reads go through here; writes never prompt.
+tauri-plugin-clipboard-manager = "2"
 
 # PDF to Image conversion (Requires downloading the pdfium binaries)
 pdfium-render = "0.8.10" 

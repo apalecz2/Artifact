@@ -1,5 +1,6 @@
 import type { OcrWord, BoundingBox } from '../ocr/types';
 import { sortWords, groupWordsIntoLines } from '../../utils/ocrTransforms';
+import { blankCell } from './tableEdits';
 import type { CellProvenance, ProvenanceCell } from './types';
 
 export const normalize = (s: string): string =>
@@ -36,14 +37,7 @@ export const padProvenanceGrid = (rows: ProvenanceCell[][]): ProvenanceCell[][] 
     return rows.map((row, r) =>
         row.length === width ? row : [
             ...row,
-            ...Array.from({ length: width - row.length }, (_, i): ProvenanceCell => ({
-                rowIndex: r,
-                colIndex: row.length + i,
-                value: '',
-                wordIds: [],
-                matchStatus: 'empty',
-                confidence: { llmMean: null, llmMin: null, ocr: null, agreement: 'agree', trust: 'high' },
-            })),
+            ...Array.from({ length: width - row.length }, (_, i) => blankCell(r, row.length + i)),
         ]);
 };
 

@@ -1,7 +1,9 @@
 ﻿import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render as rtlRender, screen, waitFor, within } from '@testing-library/react';
+import { act, render as rtlRender, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
+import { EDIT_COMMANDS, resetEditTarget, setEditTarget } from '../lib/editTarget';
+import type { EditAvailability, EditCommand } from '../lib/editTarget';
 
 const invoke = vi.fn();
 vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(...args) }));
@@ -237,6 +239,101 @@ describe('<TitleBar />', () => {
         await user.click(screen.getByRole('menuitem', { name: /^copy/i }));
 
         expect(execCommand).toHaveBeenCalledWith('copy');
+    });
+
+    describe('Edit menu claims', () => {
+        const stubExecCommand = () => {
+            const execCommand = vi.fn(() => true);
+            Object.defineProperty(document, 'execCommand', {
+                value: execCommand,
+                configurable: true,
+                writable: true,
+            });
+            return execCommand;
+        };
+
+        const claim = (over: Partial<EditAvailability> = {}) => {
+            const run = vi.fn();
+            act(() => setEditTarget({
+                can: {
+                    undo: true, redo: true, cut: true, copy: true, paste: true, selectAll: true,
+                    ...over,
+                },
+                run,
+            }));
+            return run;
+        };
+
+        /** Every row's accessible name, so a claimed item can be picked by command. */
+        const ROW_NAME: Record<EditCommand, RegExp> = {
+            undo: /^undo/i,
+            redo: /^redo/i,
+            cut: /^cut/i,
+            copy: /^copy/i,
+            paste: /^paste/i,
+            selectAll: /^select all/i,
+        };
+
+        const pick = async (user: ReturnType<typeof userEvent.setup>, command: EditCommand) => {
+            await user.click(screen.getByRole('button', { name: /edit/i }));
+            await user.click(screen.getByRole('menuitem', { name: ROW_NAME[command] }));
+        };
+
+        beforeEach(resetEditTarget);
+
+        it('falls back to the focused field when nothing has claimed them', async () => {
+            const user = userEvent.setup();
+            const execCommand = stubExecCommand();
+            render();
+
+            // Paste is the exception on this path and always has been: Chromium
+            // refuses `execCommand('paste')`, so runEditCommand reads the
+            // clipboard and inserts the text instead.
+            for (const command of EDIT_COMMANDS.filter(command => command !== 'paste')) {
+                await pick(user, command);
+                expect(execCommand).toHaveBeenCalledWith(command);
+            }
+        });
+
+        it('routes every command to the claimant — the session table while it is focused', async () => {
+            const user = userEvent.setup();
+            const execCommand = stubExecCommand();
+            render();
+            const run = claim();
+
+            for (const command of EDIT_COMMANDS) {
+                await pick(user, command);
+            }
+
+            expect(run.mock.calls.map(([command]) => command)).toEqual([...EDIT_COMMANDS]);
+            // The focused field must not be acted on as well.
+            expect(execCommand).not.toHaveBeenCalled();
+        });
+
+        it('reports what the claimant can actually do by disabling the rest', async () => {
+            const user = userEvent.setup();
+            render();
+            claim({ undo: false, cut: false, copy: false, paste: false });
+
+            await user.click(screen.getByRole('button', { name: /edit/i }));
+            expect(screen.getByRole('menuitem', { name: /^undo/i })).toBeDisabled();
+            expect(screen.getByRole('menuitem', { name: /^cut/i })).toBeDisabled();
+            expect(screen.getByRole('menuitem', { name: /^redo/i })).toBeEnabled();
+            expect(screen.getByRole('menuitem', { name: /^select all/i })).toBeEnabled();
+        });
+
+        it('hands the menu back to the field once the claim is released', async () => {
+            const user = userEvent.setup();
+            const execCommand = stubExecCommand();
+            render();
+
+            const run = claim();
+            act(() => setEditTarget(null));
+
+            await pick(user, 'copy');
+            expect(run).not.toHaveBeenCalled();
+            expect(execCommand).toHaveBeenCalledWith('copy');
+        });
     });
 
     it('opens one menu at a time, switching on hover', async () => {

@@ -33,6 +33,32 @@ export async function copyTextToClipboard(text: string): Promise<boolean> {
     }
 }
 
+/**
+ * Read the clipboard's text, natively.
+ *
+ * Not `navigator.clipboard.readText()`: that is a *web* API, so the webview
+ * gates it behind Chromium's `clipboard-read` permission and pops up
+ * "<origin> wants to see text and images copied to the clipboard" the first
+ * time. A local desktop app pasting into its own window has no business showing
+ * that, so reads go through Tauri's clipboard plugin, which asks the OS from
+ * Rust and never prompts.
+ *
+ * The plugin import is dynamic and the web API is kept as the fallback so this
+ * still works under a plain `vite dev` (no Tauri backend to call).
+ *
+ * Writing needs none of this — `navigator.clipboard.write` is granted outright
+ * for a focused document acting on a user gesture — so `copyTableToClipboard`
+ * below stays on the web API, where it can offer HTML alongside plain text.
+ */
+export async function readClipboardText(): Promise<string> {
+    try {
+        const { readText } = await import('@tauri-apps/plugin-clipboard-manager');
+        return (await readText()) ?? '';
+    } catch {
+        return (await navigator.clipboard.readText()) ?? '';
+    }
+}
+
 // Copy tabular data to the clipboard the way a spreadsheet (or Claude's chat) does:
 // TSV as text/plain (pastes into a text editor) plus an HTML <table> (pastes as a real
 // grid into Excel / Google Sheets / docs). Cells containing tabs, newlines, or quotes

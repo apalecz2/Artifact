@@ -44,6 +44,7 @@ export default defineConfig({
             thresholds: {
                 'src/features/extraction/provenance.ts': { statements: 95, branches: 80, functions: 95, lines: 95 },
                 'src/features/extraction/confidence.ts': { statements: 95, branches: 90, functions: 100, lines: 95 },
+                'src/features/extraction/tableEdits.ts': { statements: 95, branches: 85, functions: 95, lines: 95 },
                 'src/utils/ocrTransforms.ts': { statements: 95, branches: 75, functions: 100, lines: 95 },
                 'src/features/export/exportUtils.ts': { statements: 80, branches: 80, functions: 90, lines: 80 },
                 'src/features/llama/contextBudget.ts': { statements: 100, branches: 90, functions: 100, lines: 100 },

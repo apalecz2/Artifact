@@ -61,17 +61,32 @@ export function OutputHelp(): React.ReactElement {
             </HelpItem>
             <HelpItem icon="checklist" title="Review flagged cells">
                 The toolbar counts the cells worth a second look and steps through them:
-                use the arrow buttons or the ←/→ keys; each step jumps to the cell's spot
+                use the arrow buttons, Alt+←/→, or F3; each step jumps to the cell's spot
                 on the document. Fix a wrong value by editing it, or press Space (or the
-                checkbox button) to mark a correct cell as verified. Resolved cells turn
+                checkbox button) to mark a correct cell as checked. Resolved cells turn
                 green with a ✓, and the toolbar shows "All cells reviewed" once the list
-                is clear. After that, ←/→ walk every cell.
+                is clear.
             </HelpItem>
             <HelpItem icon="edit" title="Edit a cell">
-                Double-click a cell (or select it and press Enter) to type a correction.
-                Enter saves it, Escape cancels. Edited cells count as manually verified,
-                and your changes are saved and included in copies and exports. Use ↑/↓ to
-                move between rows while reviewing.
+                Double-click a cell (or select it and press Enter) to type a correction —
+                or just start typing to replace the value. Enter saves and moves down, Tab
+                saves and moves right, Escape cancels. Edited cells count as checked, and
+                your changes are saved and included in copies and exports. Arrow keys move
+                between cells.
+            </HelpItem>
+            <HelpItem icon="select_all" title="Select several cells">
+                Drag across cells, or hold Shift while clicking or pressing an arrow key,
+                to select a block. Click a row number or column letter to take the whole
+                row or column; Ctrl+A takes the table. Space then marks every selected cell
+                as checked at once, Delete clears them, and Ctrl+C copies the block (Ctrl+V
+                pastes one back in, from here or from a spreadsheet).
+            </HelpItem>
+            <HelpItem icon="grid_on" title="Fix the table's shape">
+                Right-click any cell — or a row number or column letter — for the table
+                edits: insert or delete rows and columns, move them, join a value the AI
+                split across two cells or columns, and shift a misaligned row left or
+                right. The same commands live under "Edit table" in the toolbar. Every
+                change can be undone with Ctrl+Z.
             </HelpItem>
             <HelpItem icon="download" title="Export & re-extract">
                 Export the finished table (e.g. CSV), or re-extract if the result looks off

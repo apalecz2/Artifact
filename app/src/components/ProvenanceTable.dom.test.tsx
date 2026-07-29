@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import ProvenanceTable, { needsReview } from './ProvenanceTable';
+import ProvenanceTable, { columnLabel, needsReview } from './ProvenanceTable';
 import type { TrustLevel, AgreementStatus, ProvenanceCell } from '../features/extraction/types';
 import { provenanceCell } from '../test/fixtures';
 
@@ -209,7 +209,52 @@ describe('ProvenanceTable', () => {
             expect(input.value).toBe('90');
             fireEvent.change(input, { target: { value: '98' } });
             fireEvent.keyDown(input, { key: 'Enter' });
-            expect(props.onCommitEdit).toHaveBeenCalledWith(rows[1][0], '98');
+            // Enter commits and moves down a row, the way a spreadsheet does.
+            expect(props.onCommitEdit).toHaveBeenCalledWith(rows[1][0], '98', 'down');
+        });
+
+        it('Tab commits and moves right; Shift+Tab commits without advancing', () => {
+            const props = editProps();
+            const rows = [[cell('Head', 'high')], [cell('90', 'low', { rowIndex: 1 })]];
+            const { rerender } = render(
+                <ProvenanceTable
+                    rows={rows}
+                    onCellClick={vi.fn()}
+                    selectedCell={null}
+                    editingCell={{ rowIndex: 1, colIndex: 0 }}
+                    {...props}
+                />,
+            );
+            fireEvent.keyDown(screen.getByLabelText('Edit cell value'), { key: 'Tab' });
+            expect(props.onCommitEdit).toHaveBeenCalledWith(rows[1][0], '90', 'right');
+
+            rerender(
+                <ProvenanceTable
+                    rows={rows}
+                    onCellClick={vi.fn()}
+                    selectedCell={null}
+                    editingCell={{ rowIndex: 1, colIndex: 0 }}
+                    {...props}
+                />,
+            );
+            fireEvent.keyDown(screen.getByLabelText('Edit cell value'), { key: 'Tab', shiftKey: true });
+            expect(props.onCommitEdit).toHaveBeenLastCalledWith(rows[1][0], '90', null);
+        });
+
+        it('opens with the typed character when editing began by typing over the cell', () => {
+            const props = editProps();
+            const rows = [[cell('Head', 'high')], [cell('90', 'low', { rowIndex: 1 })]];
+            render(
+                <ProvenanceTable
+                    rows={rows}
+                    onCellClick={vi.fn()}
+                    selectedCell={null}
+                    editingCell={{ rowIndex: 1, colIndex: 0 }}
+                    editingInitialValue="7"
+                    {...props}
+                />,
+            );
+            expect((screen.getByLabelText('Edit cell value') as HTMLInputElement).value).toBe('7');
         });
 
         it('Escape cancels without committing; blur with no change also cancels', () => {
@@ -246,7 +291,135 @@ describe('ProvenanceTable', () => {
             const input = screen.getByLabelText('Edit cell value');
             fireEvent.change(input, { target: { value: '95' } });
             fireEvent.blur(input);
-            expect(props.onCommitEdit).toHaveBeenCalledWith(rows[1][0], '95');
+            expect(props.onCommitEdit).toHaveBeenCalledWith(rows[1][0], '95', null);
+        });
+    });
+
+    describe('range selection', () => {
+        const grid = () => [
+            [cell('A', 'high'), cell('B', 'high', { colIndex: 1 })],
+            [cell('C', 'high', { rowIndex: 1 }), cell('D', 'high', { rowIndex: 1, colIndex: 1 })],
+        ];
+
+        it('rings every cell inside the selection range, and the anchor differently', () => {
+            render(
+                <ProvenanceTable
+                    rows={grid()}
+                    onCellClick={vi.fn()}
+                    selectedCell={{ rowIndex: 0, colIndex: 0 }}
+                    selectionRange={{ top: 0, left: 0, bottom: 1, right: 1 }}
+                />,
+            );
+            // Anchor: the high-contrast ring (its source is what the document shows).
+            expect(screen.getByText('A').closest('th')!.className).toContain('ring-black');
+            // Rest of the range: the subordinate primary ring.
+            expect(screen.getByText('D').closest('td')!.className).toContain('ring-primary');
+            expect(screen.getByText('D').closest('td')!.className).not.toContain('ring-black');
+        });
+
+        it('selects on pointer-down (not click) once range selection is wired up', () => {
+            const onCellPointerDown = vi.fn();
+            const onCellClick = vi.fn();
+            const rows = grid();
+            render(
+                <ProvenanceTable
+                    rows={rows}
+                    onCellClick={onCellClick}
+                    selectedCell={null}
+                    onCellPointerDown={onCellPointerDown}
+                />,
+            );
+            fireEvent.mouseDown(screen.getByText('C'), { button: 0, shiftKey: true });
+            expect(onCellPointerDown).toHaveBeenCalledWith(rows[1][0], expect.anything());
+            // Click must not double-fire selection through the legacy path.
+            fireEvent.click(screen.getByText('C'));
+            expect(onCellClick).not.toHaveBeenCalled();
+        });
+
+        it('ignores non-primary mouse buttons so right-click does not move the anchor', () => {
+            const onCellPointerDown = vi.fn();
+            render(
+                <ProvenanceTable
+                    rows={grid()}
+                    onCellClick={vi.fn()}
+                    selectedCell={null}
+                    onCellPointerDown={onCellPointerDown}
+                />,
+            );
+            fireEvent.mouseDown(screen.getByText('C'), { button: 2 });
+            expect(onCellPointerDown).not.toHaveBeenCalled();
+        });
+
+        it('extends the range while dragging across cells', () => {
+            const onCellPointerEnter = vi.fn();
+            const rows = grid();
+            render(
+                <ProvenanceTable
+                    rows={rows}
+                    onCellClick={vi.fn()}
+                    selectedCell={null}
+                    onCellPointerDown={vi.fn()}
+                    onCellPointerEnter={onCellPointerEnter}
+                />,
+            );
+            fireEvent.mouseEnter(screen.getByText('D'));
+            expect(onCellPointerEnter).toHaveBeenCalledWith(rows[1][1]);
+        });
+    });
+
+    describe('row/column handles', () => {
+        const rows = [
+            [cell('Name', 'high'), cell('Score', 'high', { colIndex: 1 })],
+            [cell('Alice', 'high', { rowIndex: 1 }), cell('90', 'high', { rowIndex: 1, colIndex: 1 })],
+        ];
+
+        const handleProps = () => ({
+            showHandles: true,
+            onSelectRow: vi.fn(),
+            onSelectColumn: vi.fn(),
+            onSelectAll: vi.fn(),
+        });
+
+        it('are hidden unless asked for (the read-only table shows no gutters)', () => {
+            render(<ProvenanceTable rows={rows} onCellClick={vi.fn()} selectedCell={null} />);
+            expect(screen.queryByTitle('Select column A')).not.toBeInTheDocument();
+        });
+
+        it('select a whole row or column, numbering rows from the header', () => {
+            const props = handleProps();
+            render(<ProvenanceTable rows={rows} onCellClick={vi.fn()} selectedCell={null} {...props} />);
+            fireEvent.mouseDown(screen.getByTitle('Select column B'));
+            expect(props.onSelectColumn).toHaveBeenCalledWith(1, expect.anything());
+            fireEvent.mouseDown(screen.getByTitle('Select row 2'));
+            expect(props.onSelectRow).toHaveBeenCalledWith(1, expect.anything());
+            fireEvent.click(screen.getByTitle('Select the whole table'));
+            expect(props.onSelectAll).toHaveBeenCalled();
+        });
+
+        it('open the handle menu on right-click', () => {
+            const onHandleContextMenu = vi.fn();
+            render(
+                <ProvenanceTable
+                    rows={rows}
+                    onCellClick={vi.fn()}
+                    selectedCell={null}
+                    {...handleProps()}
+                    onHandleContextMenu={onHandleContextMenu}
+                />,
+            );
+            fireEvent.contextMenu(screen.getByTitle('Select column A'));
+            expect(onHandleContextMenu).toHaveBeenCalledWith({ kind: 'column', index: 0 }, expect.anything());
+        });
+    });
+
+    describe('columnLabel', () => {
+        it('numbers columns the way a spreadsheet does', () => {
+            expect(columnLabel(0)).toBe('A');
+            expect(columnLabel(25)).toBe('Z');
+            expect(columnLabel(26)).toBe('AA');
+            expect(columnLabel(27)).toBe('AB');
+            expect(columnLabel(51)).toBe('AZ');
+            expect(columnLabel(52)).toBe('BA');
         });
     });
 });

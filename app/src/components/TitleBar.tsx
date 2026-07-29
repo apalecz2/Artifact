@@ -1,10 +1,13 @@
-﻿import { useCallback, useEffect, useRef, useState } from 'react';
+﻿import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import Icon from './Icon';
 import TitleBarMenu, { type MenuEntry, type MenuLeaf } from './TitleBarMenu';
+import { getEditTarget, runInEditTarget, subscribeEditTarget } from '../lib/editTarget';
+import type { EditCommand } from '../lib/editTarget';
+import { readClipboardText } from '../utils/clipboard';
 // The bundled app icon, straight from the source Tauri ships to the OS, so the
 // bar and the taskbar/dock can never show different marks. Vite hashes and emits
 // it like any other asset (`server.fs.allow` already covers the path).
@@ -39,6 +42,25 @@ const ZOOM_ITEMS: ZoomItem[] = [
     { action: 'in', label: 'Zoom In', key: '+' },
     { action: 'out', label: 'Zoom Out', key: '−' },
     { action: 'reset', label: 'Actual Size', key: '0' },
+];
+
+interface EditItem {
+    command: EditCommand;
+    label: string;
+    /** Key as printed in the hint, after the platform modifier. */
+    key: string;
+    /** Printed instead of `key` on macOS, where Redo is ⇧Z rather than Y. */
+    macKey?: string;
+}
+
+/** The Edit menu's items, in order; a separator follows the first two. */
+const EDIT_ITEMS: EditItem[] = [
+    { command: 'undo', label: 'Undo', key: 'Z' },
+    { command: 'redo', label: 'Redo', key: 'Y', macKey: '⇧ Z' },
+    { command: 'cut', label: 'Cut', key: 'X' },
+    { command: 'copy', label: 'Copy', key: 'C' },
+    { command: 'paste', label: 'Paste', key: 'V' },
+    { command: 'selectAll', label: 'Select All', key: 'A' },
 ];
 
 /**
@@ -162,8 +184,7 @@ export function historyShortcut(
     return null;
 }
 
-/** The Edit menu's commands, run against whatever currently has focus. */
-export type EditCommand = 'undo' | 'redo' | 'cut' | 'copy' | 'paste' | 'selectAll';
+export type { EditCommand };
 
 /**
  * Runs an Edit-menu command on the focused field.
@@ -172,7 +193,9 @@ export type EditCommand = 'undo' | 'redo' | 'cut' | 'copy' | 'paste' | 'selectAl
  * field's *own* undo stack and its selection-based cut/copy — the modern
  * Clipboard API can write text but can't replace a selection or undo an edit.
  * Paste is the one case it can't do: Chromium refuses `execCommand('paste')`
- * outright, so read the clipboard and insert the text as an undoable edit.
+ * outright, so read the clipboard and insert the text as an undoable edit. That
+ * read goes through the OS (`readClipboardText`) rather than
+ * `navigator.clipboard`, which would raise a permission prompt.
  */
 export async function runEditCommand(command: EditCommand): Promise<void> {
     if (command !== 'paste') {
@@ -181,11 +204,23 @@ export async function runEditCommand(command: EditCommand): Promise<void> {
     }
 
     try {
-        const text = await navigator.clipboard.readText();
+        const text = await readClipboardText();
         if (text) document.execCommand('insertText', false, text);
     } catch {
-        // Clipboard read denied or unavailable; nothing further to try.
+        // Clipboard unreadable; nothing further to try.
     }
+}
+
+/**
+ * Runs an Edit-menu command against whichever surface has claimed it — the
+ * session's table editor while the table is focused, which has its own undo
+ * history, its own cell selection and its own clipboard format, none of which a
+ * text field owns or `execCommand` can reach. With no claimant this is the
+ * focused field, exactly as before. See `lib/editTarget.ts`.
+ */
+export async function runEditMenuCommand(command: EditCommand): Promise<void> {
+    if (runInEditTarget(command)) return;
+    await runEditCommand(command);
 }
 
 /** What the back/forward buttons should offer right now. */
@@ -235,6 +270,11 @@ export default function TitleBar() {
     const menuBarRef = useRef<HTMLDivElement>(null);
     const navigate = useNavigate();
     const location = useLocation();
+
+    // Whether some surface has claimed the Edit commands, and which of them it
+    // can run right now. The snapshot only changes when that availability does,
+    // so the bar isn't re-rendered by every cell click in the session's table.
+    const editTarget = useSyncExternalStore(subscribeEditTarget, getEditTarget, () => null);
 
     const applyZoom = useCallback(async (action: ZoomAction) => {
         try {
@@ -410,23 +450,24 @@ export default function TitleBar() {
     ];
 
     // These carry hints but bind no keys: the webview already handles Ctrl+Z/X/C/
-    // V/A on the focused field, so the menu only needs to offer them by mouse.
+    // V/A on the focused field, and the table editor binds its own while it is
+    // focused — so the menu only needs to offer them by mouse.
+    //
+    // Which of the two they act on isn't fixed: a surface with its own editing
+    // model (the session's table) claims them while focused, and the rows then
+    // report *its* availability — greyed out over an empty undo stack or with
+    // nothing selected, rather than standing enabled and doing nothing.
+    const editItemRow = (item: EditItem): MenuLeaf => ({
+        label: item.label,
+        hint: `${modifier} ${isMac ? item.macKey ?? item.key : item.key}`,
+        disabled: editTarget ? !editTarget[item.command] : false,
+        onSelect: () => void runEditMenuCommand(item.command),
+    });
+
     const editEntries: MenuLeaf[] = [
-        { label: 'Undo', hint: `${modifier} Z`, onSelect: () => void runEditCommand('undo') },
-        {
-            label: 'Redo',
-            hint: isMac ? '⌘ ⇧ Z' : 'Ctrl Y',
-            onSelect: () => void runEditCommand('redo'),
-        },
+        ...EDIT_ITEMS.slice(0, 2).map(editItemRow),
         'separator',
-        { label: 'Cut', hint: `${modifier} X`, onSelect: () => void runEditCommand('cut') },
-        { label: 'Copy', hint: `${modifier} C`, onSelect: () => void runEditCommand('copy') },
-        { label: 'Paste', hint: `${modifier} V`, onSelect: () => void runEditCommand('paste') },
-        {
-            label: 'Select All',
-            hint: `${modifier} A`,
-            onSelect: () => void runEditCommand('selectAll'),
-        },
+        ...EDIT_ITEMS.slice(2).map(editItemRow),
         'separator',
         { label: 'Find Extractions…', hint: `${modifier} F`, onSelect: () => runCommand('find') },
     ];
@@ -457,6 +498,12 @@ export default function TitleBar() {
     return (
         <header
             data-tauri-drag-region
+            // Marks the bar as window chrome: a press here must not count as
+            // clicking *away* from the content pane the user is working in, or
+            // reaching for the Edit menu would release the very claim on its
+            // commands that opening it was meant to use (see
+            // ExtractionOutputPane).
+            data-app-titlebar
             // `z-100` clears every overlay in the app (the highest is `z-70`).
             // It has to be an absolute number, not just higher than its sibling:
             // `Modal` and the output pane's tooltip portal into `document.body`,

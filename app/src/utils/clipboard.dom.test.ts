@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { copyTextToClipboard } from './clipboard';
+import { copyTextToClipboard, readClipboardText } from './clipboard';
+
+// The Tauri clipboard plugin, which only exists inside the app's webview.
+const pluginReadText = vi.fn();
+vi.mock('@tauri-apps/plugin-clipboard-manager', () => ({
+    readText: () => pluginReadText(),
+}));
 
 // jsdom provides neither navigator.clipboard nor execCommand, so both layers are
 // installed per-test. The point of these cases is the *fallback contract*: the
@@ -60,5 +66,47 @@ describe('copyTextToClipboard', () => {
         stubClipboard(vi.fn().mockRejectedValue(new Error('not allowed')));
         // No execCommand defined — jsdom throws "not implemented" on the call.
         await expect(copyTextToClipboard('nope')).resolves.toBe(false);
+    });
+});
+
+describe('readClipboardText', () => {
+    const stubWebRead = (readText: () => Promise<string>) => {
+        Object.defineProperty(navigator, 'clipboard', {
+            value: { readText },
+            configurable: true,
+            writable: true,
+        });
+    };
+
+    beforeEach(() => {
+        pluginReadText.mockReset();
+    });
+
+    afterEach(() => {
+        Reflect.deleteProperty(navigator, 'clipboard');
+    });
+
+    it('reads through the OS, never touching the permission-gated web API', async () => {
+        // `navigator.clipboard.readText()` is what raises Chromium's "wants to
+        // see text and images copied to the clipboard" prompt, so inside the app
+        // it must not be reached at all.
+        pluginReadText.mockResolvedValue('a\tb');
+        const webRead = vi.fn();
+        stubWebRead(webRead);
+
+        await expect(readClipboardText()).resolves.toBe('a\tb');
+        expect(webRead).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the web API when there is no Tauri backend (plain vite dev)', async () => {
+        pluginReadText.mockRejectedValue(new Error('not running under Tauri'));
+        stubWebRead(vi.fn().mockResolvedValue('from the webview'));
+
+        await expect(readClipboardText()).resolves.toBe('from the webview');
+    });
+
+    it('reports an empty clipboard as an empty string, not null', async () => {
+        pluginReadText.mockResolvedValue(null);
+        await expect(readClipboardText()).resolves.toBe('');
     });
 });

@@ -6,12 +6,17 @@ import { CopyButton } from '../../components/CopyButton';
 import { HelpOverlay } from '../../components/HelpOverlay';
 import ProvenanceTable, { needsReview } from '../../components/ProvenanceTable';
 import type { SelectedCell } from '../../components/ProvenanceTable';
+import { ContextMenu } from '../../components/ContextMenu';
 import { ExtractionProgress } from '../../features/extraction/ExtractionProgress';
 import { ExportMenu } from '../../features/export/ExportMenu';
 import { parseCSV } from '../../features/llama/promptUtils';
 import type { ExtractionPhase } from '../../features/llama/useLlamaChat';
 import type { DocumentPageResult, ProvenanceCell } from '../../features/extraction/types';
 import type { LineWord } from '../../features/extraction/types';
+import { useTableEditor } from '../../features/extraction/useTableEditor';
+import { setEditTarget } from '../../lib/editTarget';
+import { buildTableMenu } from './tableCommands';
+import type { MenuTarget } from './tableCommands';
 import { iconBtnClass } from './sessionToolbar';
 import { OutputHelp } from './SessionHelp';
 
@@ -47,10 +52,14 @@ interface ExtractionOutputPaneProps {
     // Table result
     provenanceCells: ProvenanceCell[][] | null;
     selectedCell: SelectedCell;
-    handleCellClick: (cell: ProvenanceCell) => void;
-    // Manual review: commit a corrected value / toggle "manually verified".
-    onCellEdit: (cell: ProvenanceCell, value: string) => void;
-    onToggleVerified: (cell: ProvenanceCell) => void;
+    handleCellClick: (cell: ProvenanceCell, opts?: { autoZoom?: boolean }) => void;
+    /** Commit an edited grid: updates the session's table state and persists it.
+     *  Every table edit — a typed value, a deleted row, an undo — goes through
+     *  here as a whole new grid. */
+    onApplyGrid: (rows: ProvenanceCell[][]) => void;
+    /** Identifies the table being edited (session + page). Changing it clears
+     *  the undo history, which belongs to one page's table only. */
+    tableKey: string;
     savedCsv: string | null;
     handleCopyTable: () => Promise<void> | void;
     hasTable: boolean;
@@ -165,7 +174,7 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
         activePage, isDbLoading, showProcessing, processingCancelled,
         rawLines, selectedWordId, highlightedWordId, setHighlightedWordId, selectWord, selectedWordRef, handleCopyRawText, rawTextSaved,
         isExtracting, isCancelling, extractionPhase, streamingContent, streamRef, cancelTableFormat,
-        provenanceCells, selectedCell, handleCellClick, onCellEdit, onToggleVerified, savedCsv, handleCopyTable, hasTable,
+        provenanceCells, selectedCell, handleCellClick, onApplyGrid, tableKey, savedCsv, handleCopyTable, hasTable,
         extractionError, llamaError, truncated, contextOverflow, handleFormatTable,
         fileStem,
     } = props;
@@ -216,106 +225,190 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
         handleCellClick(flaggedCells[nextIndex]);
     };
 
-    // Which cell (if any) is in inline-edit mode. Owned here rather than by the
-    // table so the toolbar button and the Enter shortcut can open the editor.
-    const [editingCell, setEditingCell] = useState<SelectedCell>(null);
-    useEffect(() => setEditingCell(null), [provenanceCells]);
+    // Spreadsheet-style editing over the provenance grid: range selection,
+    // structural edits, clipboard, undo/redo. It owns no table data — every
+    // command hands a whole new grid back through onApplyGrid.
+    const editor = useTableEditor({
+        rows: provenanceCells,
+        selectedCell,
+        onApplyGrid,
+        onSelectCell: handleCellClick,
+        resetKey: tableKey,
+    });
 
     const selectedProvCell = selectedCell
         ? provenanceCells?.[selectedCell.rowIndex]?.[selectedCell.colIndex]
         : undefined;
 
-    const commitEdit = (cell: ProvenanceCell, value: string) => {
-        setEditingCell(null);
-        onCellEdit(cell, value);
-    };
+    // Which surface the open command menu belongs to, and where it hangs. Items
+    // are rebuilt on render (not captured when the menu opened) so they always
+    // describe the current selection.
+    const [menu, setMenu] = useState<{ x: number; y: number; target: MenuTarget; placement?: 'up' | 'down' } | null>(null);
+    const tableMenuButtonRef = useRef<HTMLButtonElement>(null);
 
-    // Keyboard review flow over the table (grids are rectangular — Session pads
-    // them — so column clamping below is only belt-and-braces):
-    //   ←/→  step through the flagged cells while any remain; once the table is
-    //         clean they walk every cell in reading order. Each step selects the
-    //         cell and highlights/zooms its source location on the document.
-    //   ↑/↓  move the selection between rows (free-form navigation).
-    //   Enter/F2 edit the selected cell; Space marks it verified/unverified.
+    // Keyboard and paste only act on the table while the user is actually
+    // working in this pane. The table's cells aren't focusable (they're plain
+    // <td>s), so "focus" here means "the last click landed in this pane" —
+    // without it, a Delete pressed while editing OCR on the left would silently
+    // clear table cells.
+    const paneRef = useRef<HTMLDivElement>(null);
+    const [paneActive, setPaneActive] = useState(false);
     useEffect(() => {
-        if (outputView !== 'table' || isExtracting || !provenanceCells?.length || editingCell) return;
-        const grid = provenanceCells;
-
-        const clickAt = (r: number, c: number) => {
-            const cell = grid[r]?.[Math.min(c, (grid[r]?.length ?? 1) - 1)];
-            if (cell) handleCellClick(cell);
+        const onPointerDown = (e: MouseEvent) => {
+            const node = e.target as HTMLElement | null;
+            // The command menu is portalled out of the pane but is part of it,
+            // and the window's title bar is chrome rather than another place to
+            // be working — reaching for its Edit ▸ Undo must not first take the
+            // table's claim on Undo away.
+            if (node?.closest?.('[role="menu"], [data-app-titlebar]')) return;
+            setPaneActive(!!node && !!paneRef.current?.contains(node));
         };
+        document.addEventListener('mousedown', onPointerDown, true);
+        return () => document.removeEventListener('mousedown', onPointerDown, true);
+    }, []);
 
-        // Reading-order step across all cells, wrapping between rows but not
-        // around the table's ends.
-        const stepCell = (delta: 1 | -1) => {
-            if (!selectedCell) {
-                clickAt(delta > 0 ? 0 : grid.length - 1, delta > 0 ? 0 : Infinity);
-                return;
-            }
-            let { rowIndex: r, colIndex: c } = selectedCell;
-            c += delta;
-            while (r >= 0 && r < grid.length) {
-                if (c < 0) { r -= 1; c = (grid[r]?.length ?? 0) - 1; continue; }
-                if (c >= grid[r].length) { r += 1; c = 0; continue; }
-                break;
-            }
-            const cell = grid[r]?.[c];
-            if (cell) handleCellClick(cell);
-        };
+    // Claim the title bar's Edit menu while the table is the focused surface.
+    // Its undo history is over the grid, its selection is cells rather than
+    // text, and it copies TSV — none of which a text field owns or
+    // `execCommand` can reach, so with the table focused those menu items would
+    // otherwise be dead. Re-registered on every render so the runner never
+    // closes over a stale grid (setEditTarget only notifies when the
+    // availability changes), and released when the table isn't focused or this
+    // pane unmounts, handing the menu back to the focused field.
+    const ownsEditMenu = outputView === 'table' && !isExtracting && (provenanceCells?.length ?? 0) > 0 && paneActive;
+    useEffect(() => {
+        if (!ownsEditMenu) {
+            setEditTarget(null);
+            return;
+        }
+        const hasSelection = !!editor.range;
+        setEditTarget({
+            can: {
+                undo: editor.canUndo,
+                redo: editor.canRedo,
+                cut: hasSelection,
+                copy: hasSelection,
+                paste: hasSelection,
+                selectAll: true,
+            },
+            run: command => {
+                switch (command) {
+                    case 'undo': editor.undo(); break;
+                    case 'redo': editor.redo(); break;
+                    case 'cut': void editor.cutSelection(); break;
+                    case 'copy': void editor.copySelection(); break;
+                    // No `paste` event to ride on from a menu click, so this one
+                    // asks the clipboard directly and says so if that's denied.
+                    case 'paste': void editor.pasteFromClipboard(); break;
+                    case 'selectAll': editor.selectAll(); break;
+                }
+            },
+        });
+    });
+    useEffect(() => () => setEditTarget(null), []);
 
-        const stepRow = (delta: 1 | -1) => {
-            if (!selectedCell) {
-                if (flaggedCells.length > 0) handleCellClick(flaggedCells[0]);
-                else clickAt(0, 0);
-                return;
-            }
-            const r = selectedCell.rowIndex + delta;
-            if (r < 0 || r >= grid.length) return;
-            clickAt(r, selectedCell.colIndex);
-        };
+    /**
+     * Keyboard model over the table:
+     *   ←↑→↓        move the selection one cell; Shift extends the selection.
+     *   Alt+←/→, F3 step through the cells still worth reviewing (the toolbar's
+     *               chevrons do the same). Plain arrows deliberately no longer
+     *               jump between flagged cells — a table you can edit has to let
+     *               you walk it cell by cell.
+     *   Enter/F2    edit; typing a character replaces the value outright.
+     *   Space       mark the selection checked / unchecked.
+     *   Delete      clear the selected values.
+     *   Ctrl+Z/Y    undo / redo. Ctrl+A/C/X select all / copy / cut.
+     * Registered without a dependency array so each keystroke sees the current
+     * grid and selection.
+     */
+    useEffect(() => {
+        if (outputView !== 'table' || isExtracting || !provenanceCells?.length || editor.editing) return;
 
         const handler = (e: KeyboardEvent) => {
             // Never hijack typing in an input/textarea (e.g. the page-number
-            // field or the word-edit modal) or chorded shortcuts.
+            // field or the word-edit modal).
             const target = e.target as HTMLElement | null;
             if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)) return;
-            if (e.ctrlKey || e.metaKey || e.altKey) return;
+            if (!paneActive) return;
             // Enter/Space on a focused button must stay the button's activation
             // (e.g. a just-clicked toolbar chevron) — but arrows still navigate.
             const onButton = target?.tagName === 'BUTTON';
 
-            switch (e.key) {
-                case 'ArrowRight':
-                case 'ArrowLeft': {
-                    const delta = e.key === 'ArrowRight' ? 1 : -1;
-                    if (flaggedCells.length > 0) goToFlag(delta);
-                    else stepCell(delta);
-                    e.preventDefault();
-                    break;
+            if (e.ctrlKey || e.metaKey) {
+                switch (e.key.toLowerCase()) {
+                    case 'z': if (e.shiftKey) editor.redo(); else editor.undo(); break;
+                    case 'y': editor.redo(); break;
+                    case 'a': editor.selectAll(); break;
+                    case 'c': {
+                        // A real text selection (drag-highlighted values) is the
+                        // user asking for that text, not for the cell range.
+                        if (window.getSelection()?.isCollapsed === false) return;
+                        void editor.copySelection();
+                        break;
+                    }
+                    case 'x': void editor.cutSelection(); break;
+                    default: return;
                 }
-                case 'ArrowDown':
-                case 'ArrowUp':
-                    stepRow(e.key === 'ArrowDown' ? 1 : -1);
-                    e.preventDefault();
-                    break;
+                e.preventDefault();
+                return;
+            }
+
+            if (e.altKey) {
+                if (e.key === 'ArrowRight') goToFlag(1);
+                else if (e.key === 'ArrowLeft') goToFlag(-1);
+                else return;
+                e.preventDefault();
+                return;
+            }
+
+            switch (e.key) {
+                case 'ArrowRight': editor.moveFocus(0, 1, e.shiftKey); break;
+                case 'ArrowLeft': editor.moveFocus(0, -1, e.shiftKey); break;
+                case 'ArrowDown': editor.moveFocus(1, 0, e.shiftKey); break;
+                case 'ArrowUp': editor.moveFocus(-1, 0, e.shiftKey); break;
+                case 'F3': goToFlag(e.shiftKey ? -1 : 1); break;
                 case 'Enter':
                 case 'F2':
-                    if (!onButton && selectedCell && selectedProvCell) {
-                        setEditingCell({ ...selectedCell });
-                        e.preventDefault();
-                    }
+                    if (onButton || !selectedProvCell) return;
+                    editor.startEdit();
                     break;
                 case ' ':
-                    if (!onButton && selectedProvCell) {
-                        onToggleVerified(selectedProvCell);
-                        e.preventDefault();
-                    }
+                    if (onButton || !editor.range) return;
+                    editor.commands.toggleVerified();
+                    break;
+                case 'Delete':
+                case 'Backspace':
+                    if (!editor.range) return;
+                    editor.commands.clear();
+                    break;
+                default:
+                    // Type-over: a printable key replaces the cell's value, the
+                    // way it does in a spreadsheet. Only for a single cell — the
+                    // typed value has one place to go.
+                    if (onButton || e.key.length !== 1 || editor.selectionCount !== 1 || !editor.range) return;
+                    editor.typeInto({ rowIndex: editor.range.top, colIndex: editor.range.left }, e.key);
                     break;
             }
+            e.preventDefault();
         };
         window.addEventListener('keydown', handler);
         return () => window.removeEventListener('keydown', handler);
+    });
+
+    // Ctrl+V arrives as a paste event carrying the clipboard data, which needs
+    // no clipboard-read permission (see useTableEditor.pasteText).
+    useEffect(() => {
+        if (outputView !== 'table' || isExtracting || !provenanceCells?.length || editor.editing || !paneActive) return;
+        const handler = (e: ClipboardEvent) => {
+            const target = e.target as HTMLElement | null;
+            if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+            const text = e.clipboardData?.getData('text/plain');
+            if (!text) return;
+            e.preventDefault();
+            editor.pasteText(text);
+        };
+        window.addEventListener('paste', handler);
+        return () => window.removeEventListener('paste', handler);
     });
 
     return (
@@ -358,7 +451,7 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
             {/* No surrounding card here: the output/content (e.g. the AI output
                 card) sits directly on the pane. This wrapper only provides the
                 scroll area and the positioning context for the floating toolbar. */}
-            <div className="relative flex-1 overflow-hidden">
+            <div ref={paneRef} className="relative flex-1 overflow-hidden">
                 <div className="h-full overflow-auto pb-24">
                 {isDbLoading ? (
                     showProcessing ? (
@@ -506,7 +599,9 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
                                     <div className="flex items-center gap-3">
                                         <span className="hidden items-center gap-1 whitespace-nowrap text-xs text-on-surface-variant @md:flex">
                                             <Icon name="ads_click" size={14} className="shrink-0" />
-                                            Click a cell to see its source · double-click to edit
+                                            {editor.selectionCount > 1
+                                                ? `${editor.selectionCount} cells selected · right-click to edit the table`
+                                                : 'Click a cell to see its source · double-click to edit · right-click for more'}
                                         </span>
                                         <CopyButton onCopy={handleCopyTable} />
                                     </div>
@@ -555,13 +650,40 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
                                     rows={provenanceCells}
                                     onCellClick={handleCellClick}
                                     selectedCell={selectedCell}
-                                    editingCell={editingCell}
-                                    onStartEdit={cell => {
-                                        handleCellClick(cell);
-                                        setEditingCell({ rowIndex: cell.rowIndex, colIndex: cell.colIndex });
+                                    editingCell={editor.editing}
+                                    editingInitialValue={editor.editing?.initial}
+                                    onStartEdit={cell => editor.startEdit({ rowIndex: cell.rowIndex, colIndex: cell.colIndex })}
+                                    onCommitEdit={(cell, value, advance) => editor.commitEdit(cell, value, advance ?? null)}
+                                    onCancelEdit={editor.cancelEdit}
+                                    selectionRange={editor.range}
+                                    onCellPointerDown={(cell, e) => editor.pointerDown(cell, e.shiftKey)}
+                                    onCellPointerEnter={editor.pointerEnter}
+                                    onCellContextMenu={(cell, e) => {
+                                        e.preventDefault();
+                                        editor.contextTarget(cell);
+                                        setMenu({ x: e.clientX, y: e.clientY, target: 'cell' });
                                     }}
-                                    onCommitEdit={commitEdit}
-                                    onCancelEdit={() => setEditingCell(null)}
+                                    showHandles
+                                    onSelectRow={(rowIndex, e) => editor.selectRow(rowIndex, e.shiftKey)}
+                                    onSelectColumn={(colIndex, e) => editor.selectColumn(colIndex, e.shiftKey)}
+                                    onSelectAll={editor.selectAll}
+                                    onHandleContextMenu={({ kind, index }, e) => {
+                                        e.preventDefault();
+                                        // Keep an existing whole-row/column selection if the
+                                        // handle is inside it, so the menu acts on all of it.
+                                        if (kind === 'row') {
+                                            const covered = editor.range && editor.range.left === 0
+                                                && editor.range.right === editor.gridCols - 1
+                                                && index >= editor.range.top && index <= editor.range.bottom;
+                                            if (!covered) editor.selectRow(index);
+                                        } else {
+                                            const covered = editor.range && editor.range.top === 0
+                                                && editor.range.bottom === editor.gridRows - 1
+                                                && index >= editor.range.left && index <= editor.range.right;
+                                            if (!covered) editor.selectColumn(index);
+                                        }
+                                        setMenu({ x: e.clientX, y: e.clientY, target: kind });
+                                    }}
                                 />
                             </OutputCard>
                         ) : savedCsv ? (
@@ -675,7 +797,7 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
                                                 <div className="flex shrink-0 items-center gap-1 pr-2 mr-1 border-r border-outline-variant">
                                                     <button
                                                         aria-label="Previous cell to review"
-                                                        title="Previous cell to review (←)"
+                                                        title="Previous cell to review (Alt+← or Shift+F3)"
                                                         onClick={() => goToFlag(-1)}
                                                         className={iconBtnClass}
                                                         type="button"
@@ -687,7 +809,7 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
                                                     </span>
                                                     <button
                                                         aria-label="Next cell to review"
-                                                        title="Next cell to review (→)"
+                                                        title="Next cell to review (Alt+→ or F3)"
                                                         onClick={() => goToFlag(1)}
                                                         className={iconBtnClass}
                                                         type="button"
@@ -707,23 +829,74 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
                                         )}
                                         {selectedProvCell && (
                                             <div className="flex shrink-0 items-center gap-1 pr-2 mr-1 border-r border-outline-variant">
+                                                {editor.selectionCount > 1 && (
+                                                    <span className="whitespace-nowrap px-1 text-sm text-on-surface-variant">
+                                                        {editor.selectionCount} selected
+                                                    </span>
+                                                )}
                                                 <button
                                                     aria-label="Edit cell value"
                                                     title="Edit cell value (Enter), or double-click the cell"
-                                                    onClick={() => setEditingCell(selectedCell ? { ...selectedCell } : null)}
+                                                    onClick={() => editor.startEdit()}
+                                                    disabled={editor.selectionCount !== 1}
                                                     className={iconBtnClass}
                                                     type="button"
                                                 >
                                                     <Icon name="edit" size={18} />
                                                 </button>
                                                 <button
-                                                    aria-label={selectedProvCell.verified ? 'Unmark manually verified' : 'Mark as manually verified'}
-                                                    title={selectedProvCell.verified ? 'Unmark manually verified (Space)' : 'Mark as manually verified (Space)'}
-                                                    onClick={() => onToggleVerified(selectedProvCell)}
-                                                    className={`${iconBtnClass}${selectedProvCell.verified ? ' text-green-700 dark:text-green-400' : ''}`}
+                                                    aria-label={editor.verifiedInRange ? 'Unmark as checked' : 'Mark as checked'}
+                                                    title={editor.verifiedInRange
+                                                        ? `Unmark ${editor.selectionCount > 1 ? 'these cells' : 'this cell'} as checked (Space)`
+                                                        : `Mark ${editor.selectionCount > 1 ? 'these cells' : 'this cell'} as checked (Space)`}
+                                                    onClick={editor.commands.toggleVerified}
+                                                    className={`${iconBtnClass}${editor.verifiedInRange ? ' text-green-700 dark:text-green-400' : ''}`}
                                                     type="button"
                                                 >
-                                                    <Icon name={selectedProvCell.verified ? 'check_box' : 'check_box_outline_blank'} size={18} />
+                                                    <Icon name={editor.verifiedInRange ? 'check_box' : 'check_box_outline_blank'} size={18} />
+                                                </button>
+                                            </div>
+                                        )}
+                                        {(provenanceCells?.length ?? 0) > 0 && (
+                                            <div className="flex shrink-0 items-center gap-1 pr-2 mr-1 border-r border-outline-variant">
+                                                <button
+                                                    aria-label="Undo"
+                                                    title="Undo (Ctrl+Z)"
+                                                    onClick={editor.undo}
+                                                    disabled={!editor.canUndo}
+                                                    className={iconBtnClass}
+                                                    type="button"
+                                                >
+                                                    <Icon name="undo" size={18} />
+                                                </button>
+                                                <button
+                                                    aria-label="Redo"
+                                                    title="Redo (Ctrl+Y)"
+                                                    onClick={editor.redo}
+                                                    disabled={!editor.canRedo}
+                                                    className={iconBtnClass}
+                                                    type="button"
+                                                >
+                                                    <Icon name="redo" size={18} />
+                                                </button>
+                                                <button
+                                                    ref={tableMenuButtonRef}
+                                                    onClick={() => {
+                                                        const rect = tableMenuButtonRef.current?.getBoundingClientRect();
+                                                        if (!rect) return;
+                                                        setMenu(open => open?.target === 'toolbar'
+                                                            ? null
+                                                            : { x: rect.left, y: rect.top - 6, target: 'toolbar', placement: 'up' });
+                                                    }}
+                                                    aria-haspopup="menu"
+                                                    aria-expanded={menu?.target === 'toolbar'}
+                                                    title="Rows, columns and other table edits"
+                                                    className="flex h-9 shrink-0 items-center gap-1 rounded-lg border border-outline-variant px-3 text-sm text-on-surface-variant transition-colors hover:bg-surface-variant"
+                                                    type="button"
+                                                >
+                                                    <Icon name="grid_on" size={16} />
+                                                    Edit table
+                                                    <Icon name="expand_more" size={14} className="leading-none" />
                                                 </button>
                                             </div>
                                         )}
@@ -747,7 +920,31 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
                         )}
                     </div>
                 )}
+
+                {/* Transient feedback for actions with no visible result of their
+                    own (a denied clipboard read, a tidy-up that found nothing). */}
+                {editor.notice && outputView === 'table' && (
+                    <div
+                        role="status"
+                        className="pointer-events-none absolute inset-x-0 bottom-20 z-20 flex justify-center px-4"
+                    >
+                        <span className="rounded-lg border border-outline-variant bg-surface px-3 py-1.5 text-sm text-on-surface-variant shadow-lg">
+                            {editor.notice}
+                        </span>
+                    </div>
+                )}
             </div>
+
+            {menu && provenanceCells && provenanceCells.length > 0 && (
+                <ContextMenu
+                    x={menu.x}
+                    y={menu.y}
+                    placement={menu.placement}
+                    label="Table edits"
+                    items={buildTableMenu(editor, menu.target)}
+                    onClose={() => setMenu(null)}
+                />
+            )}
 
             {helpOpen && (
                 <HelpOverlay title="Extracted Text & Table" onClose={() => setHelpOpen(false)}>

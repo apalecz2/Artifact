@@ -243,6 +243,10 @@ function SessionContent(): React.ReactElement {
     // them over the existing csv_outputs row. Called only while a table exists,
     // so the UPDATE always has a row to hit; a failed write keeps the in-memory
     // edit and logs rather than blanking the pane.
+    //
+    // Every table edit — a typed value, an inserted row, an undo — arrives here
+    // as a whole replacement grid (see useTableEditor), so this is the single
+    // write path for the formatted table.
     const applyCellUpdate = (updated: ProvenanceCell[][]) => {
         const csv = toCsv(updated.map(row => row.map(c => c.value)));
         setProvenanceCells(updated);
@@ -255,36 +259,6 @@ function SessionContent(): React.ReactElement {
             );
             await db.execute('UPDATE sessions SET updated_at = CURRENT_TIMESTAMP WHERE id = $1', [id]);
         }).catch(err => console.error('Failed to persist cell update', err));
-    };
-
-    const mapCell = (
-        target: ProvenanceCell,
-        update: (cell: ProvenanceCell) => ProvenanceCell,
-    ): ProvenanceCell[][] | null =>
-        provenanceCells?.map(row => row.map(c =>
-            c.rowIndex === target.rowIndex && c.colIndex === target.colIndex ? update(c) : c
-        )) ?? null;
-
-    // Committing an edit is also a manual verification: the user has looked at
-    // the source and stated the correct value, so the cell leaves the review
-    // worklist even when the typed value equals the original. The original
-    // wordIds are kept — they still point at the cell's source location.
-    const handleCellEdit = (cell: ProvenanceCell, newValue: string) => {
-        const value = newValue.trim();
-        const updated = mapCell(cell, c => ({
-            ...c,
-            value,
-            verified: true,
-            edited: c.edited || value !== cell.value.trim(),
-        }));
-        if (updated) applyCellUpdate(updated);
-    };
-
-    // Toggle "manually verified" without changing the value — the "this is
-    // actually correct" resolution for a flagged cell.
-    const handleToggleVerified = (cell: ProvenanceCell) => {
-        const updated = mapCell(cell, c => ({ ...c, verified: !c.verified }));
-        if (updated) applyCellUpdate(updated);
     };
 
     // Word-level selection links the raw-text view and the image 1:1: bold the
@@ -378,8 +352,8 @@ function SessionContent(): React.ReactElement {
                 provenanceCells={provenanceCells}
                 selectedCell={selectedCell}
                 handleCellClick={handleCellClick}
-                onCellEdit={handleCellEdit}
-                onToggleVerified={handleToggleVerified}
+                onApplyGrid={applyCellUpdate}
+                tableKey={`${id ?? 'none'}:${activePageIndex}`}
                 savedCsv={savedCsv}
                 handleCopyTable={handleCopyTable}
                 hasTable={hasTable}
