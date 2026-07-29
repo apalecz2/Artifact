@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Outlet } from 'react-router';
 import SideNavBar, { NavItem } from '../components/SideNavBar';
 import { useLocation, useNavigate } from 'react-router';
@@ -33,6 +33,9 @@ export default function AppLayout() {
     const location = useLocation();
     const navigate = useNavigate();
     const [recentSessions, setRecentSessions] = useState<NavItem[]>([]);
+    // Mirrors `recentSessions` for the event listener, which must read the current
+    // list without re-subscribing on every refresh.
+    const recentSessionsRef = useRef<NavItem[]>([]);
 
     const activeId = location.pathname === '/'
         ? 'dashboard'
@@ -45,38 +48,37 @@ export default function AppLayout() {
     // theme toggle is hidden there to avoid overlapping/competing controls.
     const isSessionPage = location.pathname.startsWith('/session/');
 
-    useEffect(() => {
-        let isActive = true;
-
-        async function fetchRecents() {
-            try {
-                const sessions = await loadRecentSessions();
-
-                if (isActive) {
-                    setRecentSessions(sessions);
-                }
-            } catch (error) {
-                console.error("Failed to fetch recent sessions:", error);
-            }
+    // Re-read the list, dropping any response a newer refresh has already
+    // overtaken — navigation and session-change events can race each other.
+    const refreshRequestRef = useRef(0);
+    const refreshRecents = useCallback(async () => {
+        const requestId = ++refreshRequestRef.current;
+        try {
+            const sessions = await loadRecentSessions();
+            if (requestId !== refreshRequestRef.current) return;
+            recentSessionsRef.current = sessions;
+            setRecentSessions(sessions);
+        } catch (error) {
+            console.error('Failed to fetch recent sessions:', error);
         }
-        
-        fetchRecents();
-
-        return () => {
-            isActive = false;
-        };
-    }, [location.pathname]);
+    }, []);
 
     useEffect(() => {
-        return subscribeToSessionChanges(({ deletedSessionId, allDeleted }) => {
-            void (async () => {
-                try {
-                    const sessions = await loadRecentSessions();
-                    setRecentSessions(sessions);
-                } catch (error) {
-                    console.error('Failed to refresh recent sessions:', error);
-                }
-            })();
+        void refreshRecents();
+    }, [location.pathname, refreshRecents]);
+
+    useEffect(() => {
+        return subscribeToSessionChanges(({ deletedSessionId, allDeleted, updatedSessionId }) => {
+            // A bump to the session already leading the list cannot re-order it, and
+            // a row carries nothing else from `sessions` (titles never change after
+            // creation) — so the common case, editing the session you're looking at,
+            // costs no query however many edits it takes.
+            const orderCannotChange =
+                updatedSessionId !== undefined &&
+                recentSessionsRef.current[0]?.id === updatedSessionId;
+            if (!orderCannotChange) {
+                void refreshRecents();
+            }
 
             const onDeletedSession =
                 deletedSessionId && location.pathname === `/session/${deletedSessionId}`;
@@ -85,7 +87,7 @@ export default function AppLayout() {
                 navigate('/search', { replace: true });
             }
         });
-    }, [location.pathname, navigate]);
+    }, [location.pathname, navigate, refreshRecents]);
 
     return (
         // `relative` is the sidebar's containing block: it positions against this

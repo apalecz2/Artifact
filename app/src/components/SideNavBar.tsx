@@ -1,6 +1,7 @@
 import { FC, useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { DeleteSessionDialog } from '../features/sessions/DeleteSessionDialog';
+import { mergePreservingOrder } from '../features/sessions/recentOrder';
 import Icon from './Icon';
 
 // ─── Nav Item Definition ───────────────────────────────────────────────────────
@@ -49,6 +50,24 @@ const SideNavBar: FC<SideNavBarProps> = ({
         item: NavItem;
     } | null>(null);
     const [sessionToDelete, setSessionToDelete] = useState<NavItem | null>(null);
+
+    // Recent sessions are ordered by last activity, and that ordering now changes
+    // live (an edit or a finished extraction re-sorts the list under the user).
+    // Re-ordering rows out from under a pointer that is aiming at one is how you
+    // open the wrong session, so while the list is *engaged* — hovered, focused,
+    // or holding its context menu open — a new ordering is held back and only
+    // membership is reconciled (a deleted session still vanishes at once). The
+    // pending order lands the moment the user disengages. `collapsed` releases
+    // the hold because the list unmounts then, taking its pointerleave with it.
+    const [isRecentEngaged, setIsRecentEngaged] = useState(false);
+    const holdRecentOrder = !collapsed && (isRecentEngaged || recentContextMenu !== null);
+    const [displayedRecents, setDisplayedRecents] = useState<NavItem[]>(recentItems);
+
+    useEffect(() => {
+        setDisplayedRecents((current) =>
+            holdRecentOrder ? mergePreservingOrder(current, recentItems) : recentItems
+        );
+    }, [recentItems, holdRecentOrder]);
 
     // On small screens the sidebar is an off-canvas overlay (it has no narrow
     // "rail" state like desktop does), so after acting on an item we collapse it
@@ -221,8 +240,22 @@ const SideNavBar: FC<SideNavBarProps> = ({
                      * collapses when there's too little vertical room, sacrificing the
                      * recent list to preserve the main items above.
                      */}
-                    {recentItems.length > 0 && !collapsed && (
-                        <div className="mt-2 flex min-h-0 flex-1 flex-col">
+                    {displayedRecents.length > 0 && !collapsed && (
+                        <div
+                            className="mt-2 flex min-h-0 flex-1 flex-col"
+                            onPointerEnter={() => setIsRecentEngaged(true)}
+                            onPointerLeave={() => setIsRecentEngaged(false)}
+                            onFocus={() => setIsRecentEngaged(true)}
+                            // React's onBlur is focusout, which also fires when focus
+                            // moves between two rows — releasing the hold mid-tab would
+                            // let the list re-sort under the keyboard. Only a target
+                            // outside the region counts as leaving.
+                            onBlur={(event) => {
+                                if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                                    setIsRecentEngaged(false);
+                                }
+                            }}
+                        >
                             <div className={`
                             my-2 shrink-0 border-t border-surface-variant transition-opacity duration-300
                             ${collapsed ? 'mx-2 opacity-50' : 'mx-4 opacity-100'}
@@ -236,7 +269,7 @@ const SideNavBar: FC<SideNavBarProps> = ({
                             </div>
 
                             <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-x-hidden overflow-y-auto">
-                            {recentItems.map((item) => {
+                            {displayedRecents.map((item) => {
                                 const isActive = item.id === activeId;
 
                                 const content = (

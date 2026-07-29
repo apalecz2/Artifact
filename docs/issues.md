@@ -10,10 +10,22 @@
   - Entire app should scale better on small screens
 - toolbars should minimize tools to just icons when the width of that side is small
 - dark mode in the installation view (for reinstallation)
-- Full window tool bar (view, file, etc)
-  - add more tools beyond zoom (saving / exporting, etc)
-- Move the info button for each side of the session to the header, with an option to collapse that pannel
+- option to collapse pannels in session
 - note on poor quality extractions -- "try fixing the OCR on the left for better results"
+
+- Click off of the table to deselect an item
+
+- Review claims of what hotkeys exist for table editing (alt ->, f3 etc)
+  - are these true? 
+  - update the help sections accordingly
+
+### Platform / macOS
+
+- The system menu bar's **Edit** items (Undo/Redo/Cut/Copy/Paste/Select All) are Tauri's
+  predefined native ones, which raise no menu event — so they can't reach the session
+  table's editor the way the Windows/Linux title-bar menu does, and ⌘Z likely never gets
+  to the table at all. Needs a Mac to build and test on:
+  [handoff-macos-edit-menu.md](handoff-macos-edit-menu.md).
 
 ### Build / Packaging
 

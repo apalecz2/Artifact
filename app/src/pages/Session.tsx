@@ -15,6 +15,7 @@ import type { BoundingBox } from '../features/ocr/types';
 import type { ProvenanceCell } from '../features/extraction/types';
 import { buildFileStem, toCsv } from '../features/export/exportUtils';
 import { copyTableToClipboard } from '../utils/clipboard';
+import { touchSession } from '../features/sessions/touchSession';
 import { SourceDocumentPane } from './session/SourceDocumentPane';
 import { ExtractionOutputPane } from './session/ExtractionOutputPane';
 
@@ -257,7 +258,7 @@ function SessionContent(): React.ReactElement {
                 'UPDATE csv_outputs SET csv_content = $1, cell_mappings_json = $2 WHERE session_id = $3 AND page_index = $4',
                 [csv, JSON.stringify(updated), id, activePageIndex]
             );
-            await db.execute('UPDATE sessions SET updated_at = CURRENT_TIMESTAMP WHERE id = $1', [id]);
+            await touchSession(id);
         }).catch(err => console.error('Failed to persist cell update', err));
     };
 

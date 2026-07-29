@@ -4,6 +4,7 @@ import { readFileAsBase64 } from './promptUtils';
 import { extractTableFromImage } from './llamaClient';
 import { estimateExtractionBudget, MIN_OUTPUT_TOKENS } from './contextBudget';
 import { getDb } from '../../lib/db';
+import { touchSession } from '../sessions/touchSession';
 import { buildTableText } from '../../utils/ocrTransforms';
 import { sanitizeWordsForProvenance } from '../extraction/provenance';
 import { matchCellsToOcr } from '../extraction/provenance';
@@ -201,7 +202,7 @@ export const useLlamaChat = () => {
             );
             // A completed extraction is the clearest "activity" signal, so surface it
             // in the session's last-updated time that "Recent" and Search order by.
-            await db.execute('UPDATE sessions SET updated_at = CURRENT_TIMESTAMP WHERE id = $1', [sessionId]);
+            await touchSession(sessionId);
 
             // A cancel can land during the (non-abortable) DB writes above — the last
             // yield points before we return. Re-check here so the result is never

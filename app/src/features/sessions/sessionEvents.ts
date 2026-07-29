@@ -2,6 +2,11 @@ export interface SessionChangeDetail {
     deletedSessionId?: string;
     // Set when every session was removed (e.g. "Delete all sessions" in Settings).
     allDeleted?: boolean;
+    // Set when a session's contents changed (a table/OCR edit, a finished
+    // extraction) and its `updated_at` moved with it, so anything ordering by
+    // that column is now stale. Nothing was removed — listeners must not
+    // navigate away on this one.
+    updatedSessionId?: string;
 }
 
 const SESSION_CHANGE_EVENT = 'dataextractionai:sessions-changed';

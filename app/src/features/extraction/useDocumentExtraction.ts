@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { readFile } from '@tauri-apps/plugin-fs';
 import { getDb } from '../../lib/db';
+import { touchSession } from '../sessions/touchSession';
 import { ExtractionResult, DocumentPageResult } from './types';
 import type { BoundingBox } from '../ocr/types';
 import { sortWords, generateLinesFromWords } from '../../utils/ocrTransforms';
@@ -188,7 +189,7 @@ export function useDocumentExtraction(sessionId: string | undefined, activePageI
             );
             // Editing OCR words is meaningful activity — keep the session's last-updated
             // time (used by "Recent"/Search ordering) in sync with the edit.
-            await db.execute('UPDATE sessions SET updated_at = CURRENT_TIMESTAMP WHERE id = $1', [sessionId]);
+            await touchSession(sessionId);
             setRawTextSaved(true);
         } catch (err) {
             console.error("Failed to update db:", err);
