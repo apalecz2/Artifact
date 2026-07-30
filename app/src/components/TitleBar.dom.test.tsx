@@ -1,4 +1,4 @@
-﻿import { describe, it, expect, vi, beforeEach } from 'vitest';
+﻿import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, fireEvent, render as rtlRender, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
@@ -25,11 +25,26 @@ vi.mock('@tauri-apps/api/window', () => ({
     getCurrentWindow: () => ({ minimize, toggleMaximize, close, isMaximized, onResized }),
 }));
 
+// The macOS-only effect subscribes to the system menu bar's events; capture the
+// handlers by name so a forwarded command can be fired at them. Off macOS the
+// effect returns before `listen` is ever called, so the other tests are
+// unaffected.
+const { menuListeners } = vi.hoisted(() => ({
+    menuListeners: {} as Record<string, (event: { payload: unknown }) => void>,
+}));
+vi.mock('@tauri-apps/api/event', () => ({
+    listen: vi.fn(async (name: string, cb: (event: { payload: unknown }) => void) => {
+        menuListeners[name] = cb;
+        return () => delete menuListeners[name];
+    }),
+}));
+
 import TitleBar, {
     appShortcut,
     historyPosition,
     historyShortcut,
     isMacPlatform,
+    MENU_EDIT_EVENT,
     modifierLabel,
     zoomShortcut,
 } from './TitleBar';
@@ -337,6 +352,60 @@ describe('<TitleBar />', () => {
 
             await pick(user, 'copy');
             expect(run).not.toHaveBeenCalled();
+            expect(execCommand).toHaveBeenCalledWith('copy');
+        });
+    });
+
+    // macOS has no in-window Edit menu — the system menu bar's custom items
+    // forward `menu:edit-command` (src-tauri/src/menu.rs), and the mac-only
+    // effect routes each through runEditMenuCommand, the same dispatcher the
+    // in-window menu uses elsewhere. So the claimant/field split is already
+    // covered above; these only assert the forwarded event reaches it.
+    describe('macOS Edit menu events', () => {
+        const asMac = () =>
+            Object.defineProperty(navigator, 'userAgent', {
+                value: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+                configurable: true,
+            });
+
+        beforeEach(() => {
+            resetEditTarget();
+            for (const name of Object.keys(menuListeners)) delete menuListeners[name];
+        });
+        // `userAgent` is a prototype getter with no own descriptor to restore, so
+        // the override has to be deleted or later tests keep thinking it's a Mac.
+        afterEach(() => delete (navigator as Navigator & { userAgent?: string }).userAgent);
+
+        it('routes a forwarded Edit command to the claimant', async () => {
+            asMac();
+            const run = vi.fn();
+            render();
+            await waitFor(() => expect(menuListeners[MENU_EDIT_EVENT]).toBeDefined());
+
+            act(() =>
+                setEditTarget({
+                    can: { undo: true, redo: true, cut: true, copy: true, paste: true, selectAll: true },
+                    run,
+                }),
+            );
+            act(() => menuListeners[MENU_EDIT_EVENT]({ payload: 'undo' }));
+
+            expect(run).toHaveBeenCalledWith('undo');
+        });
+
+        it('falls back to the focused field when nothing has claimed it', async () => {
+            asMac();
+            const execCommand = vi.fn(() => true);
+            Object.defineProperty(document, 'execCommand', {
+                value: execCommand,
+                configurable: true,
+                writable: true,
+            });
+            render();
+            await waitFor(() => expect(menuListeners[MENU_EDIT_EVENT]).toBeDefined());
+
+            act(() => menuListeners[MENU_EDIT_EVENT]({ payload: 'copy' }));
+
             expect(execCommand).toHaveBeenCalledWith('copy');
         });
     });
