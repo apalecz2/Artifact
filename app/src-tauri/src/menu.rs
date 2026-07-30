@@ -26,12 +26,26 @@ const FILE_NEW_ID: &str = "file.new";
 const FILE_OPEN_ID: &str = "file.open";
 const APP_SETTINGS_ID: &str = "app.settings";
 const EDIT_FIND_ID: &str = "edit.find";
+const EDIT_UNDO_ID: &str = "edit.undo";
+const EDIT_REDO_ID: &str = "edit.redo";
+const EDIT_CUT_ID: &str = "edit.cut";
+const EDIT_COPY_ID: &str = "edit.copy";
+const EDIT_PASTE_ID: &str = "edit.paste";
+const EDIT_SELECT_ALL_ID: &str = "edit.select_all";
 
 /// Event carrying a menu-driven navigation to the frontend. The payload is an
 /// `AppCommand` name and the routes live in `TitleBar.tsx`, so the two sides
 /// never hold separate copies of the app's URLs — keep the names in step with
 /// `APP_COMMAND_ROUTE` there.
 const MENU_COMMAND_EVENT: &str = "menu:command";
+
+/// Event carrying an Edit command to the frontend. Kept separate from
+/// [`MENU_COMMAND_EVENT`] so the two contracts stay independently typed: the
+/// payload is an `EditCommand` name, dispatched by `TitleBar.tsx` through
+/// `runEditMenuCommand` — the session table's editor if it has claimed the menu,
+/// otherwise the focused field via `execCommand`. Keep the names in step with
+/// `EditCommand` in `lib/editTarget.ts`.
+const MENU_EDIT_EVENT: &str = "menu:edit-command";
 
 /// Builds the app menu: Tauri's default, plus the app's own File/Edit/View items.
 pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
@@ -73,8 +87,29 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         }
     }
 
-    // Edit — Tauri's default already supplies undo/clipboard/select-all natively,
-    // so only the app's own Find is missing.
+    // Edit — Tauri's default supplies undo/clipboard/select-all as *predefined*
+    // native items, which AppKit handles itself and which raise no menu event, so
+    // the frontend can't intercept them. That leaves the session's table editor —
+    // whose undo history is over the cell grid, whose selection is cells, and
+    // whose clipboard format is TSV, none of which a text field owns or
+    // `execCommand` can reach — unable to receive Undo/Cut/Copy/… while it is
+    // focused. Replace them with custom items carrying the same labels and
+    // accelerators, which emit `menu:edit-command`; `TitleBar.tsx` routes that
+    // through `runEditMenuCommand`, dispatching to the table's claim if it holds
+    // one and otherwise to the focused field via `execCommand` — the same
+    // fallback Windows/Linux have always used.
+    let edit_undo = MenuItem::with_id(app, EDIT_UNDO_ID, "Undo", true, Some("CmdOrCtrl+Z"))?;
+    let edit_redo = MenuItem::with_id(app, EDIT_REDO_ID, "Redo", true, Some("CmdOrCtrl+Shift+Z"))?;
+    let edit_cut = MenuItem::with_id(app, EDIT_CUT_ID, "Cut", true, Some("CmdOrCtrl+X"))?;
+    let edit_copy = MenuItem::with_id(app, EDIT_COPY_ID, "Copy", true, Some("CmdOrCtrl+C"))?;
+    let edit_paste = MenuItem::with_id(app, EDIT_PASTE_ID, "Paste", true, Some("CmdOrCtrl+V"))?;
+    let edit_select_all = MenuItem::with_id(
+        app,
+        EDIT_SELECT_ALL_ID,
+        "Select All",
+        true,
+        Some("CmdOrCtrl+A"),
+    )?;
     let find = MenuItem::with_id(
         app,
         EDIT_FIND_ID,
@@ -82,9 +117,48 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         true,
         Some("CmdOrCtrl+F"),
     )?;
-    if let Some(edit) = find_submenu(&menu, "Edit")? {
-        let separator = PredefinedMenuItem::separator(app)?;
-        edit.append_items(&[&separator, &find])?;
+    let sep_after_undo = PredefinedMenuItem::separator(app)?;
+    let sep_before_find = PredefinedMenuItem::separator(app)?;
+    let edit = Submenu::with_items(
+        app,
+        "Edit",
+        true,
+        &[
+            &edit_undo,
+            &edit_redo,
+            &sep_after_undo,
+            &edit_cut,
+            &edit_copy,
+            &edit_paste,
+            &edit_select_all,
+            &sep_before_find,
+            &find,
+        ],
+    )?;
+    // Swap the fresh submenu in for the default one at the same slot. Replacing
+    // the whole submenu — rather than picking the six predefined items out — is
+    // deliberate: predefined items carry generated ids with nothing stable to
+    // match on, so there is no reliable way to remove just them. Dropping macOS'
+    // conventional Speech / Substitutions / Emoji & Symbols extras along with
+    // them is an accepted trade: none apply to this app's short table cells, and
+    // the six commands above plus Find are the whole contract the editor needs.
+    if let Some(existing) = find_submenu(&menu, "Edit")? {
+        let index = menu
+            .items()?
+            .iter()
+            .position(|item| item.id() == existing.id());
+        menu.remove(&existing)?;
+        match index {
+            Some(index) => menu.insert(&edit, index)?,
+            None => menu.append(&edit)?,
+        }
+    } else {
+        // No default Edit submenu (a future Tauri could drop it) — add ours
+        // before the Window submenu, the conventional slot.
+        match window_submenu_index(&menu)? {
+            Some(index) => menu.insert(&edit, index)?,
+            None => menu.append(&edit)?,
+        }
     }
 
     // `CmdOrCtrl+Equal` rather than `+Plus`: an accelerator matches one physical
@@ -124,6 +198,11 @@ pub fn on_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
         return;
     }
 
+    if let Some(command) = edit_command(id) {
+        let _ = app.emit(MENU_EDIT_EVENT, command);
+        return;
+    }
+
     if let Some(command) = app_command(id) {
         let _ = app.emit(MENU_COMMAND_EVENT, command);
     }
@@ -147,6 +226,23 @@ fn app_command(id: &str) -> Option<&'static str> {
         FILE_OPEN_ID => Some("open"),
         APP_SETTINGS_ID => Some("settings"),
         EDIT_FIND_ID => Some("find"),
+        _ => None,
+    }
+}
+
+/// Frontend `EditCommand` name for a menu id, if it is one of the Edit items.
+/// These strings are the wire format of [`MENU_EDIT_EVENT`] — keep them in step
+/// with `EditCommand` in `lib/editTarget.ts` (note `selectAll`'s camelCase).
+/// `EDIT_FIND_ID` is deliberately absent: Find routes, so it belongs to
+/// [`app_command`], not here.
+fn edit_command(id: &str) -> Option<&'static str> {
+    match id {
+        EDIT_UNDO_ID => Some("undo"),
+        EDIT_REDO_ID => Some("redo"),
+        EDIT_CUT_ID => Some("cut"),
+        EDIT_COPY_ID => Some("copy"),
+        EDIT_PASTE_ID => Some("paste"),
+        EDIT_SELECT_ALL_ID => Some("selectAll"),
         _ => None,
     }
 }
@@ -186,21 +282,50 @@ mod tests {
         assert_eq!(app_command(EDIT_FIND_ID), Some("find"));
     }
 
+    /// The payloads are a contract with `EditCommand` in editTarget.ts; the
+    /// camelCase `selectAll` in particular has to survive the trip verbatim.
     #[test]
-    fn the_two_id_families_do_not_overlap() {
+    fn edit_items_map_to_frontend_command_names() {
+        assert_eq!(edit_command(EDIT_UNDO_ID), Some("undo"));
+        assert_eq!(edit_command(EDIT_REDO_ID), Some("redo"));
+        assert_eq!(edit_command(EDIT_CUT_ID), Some("cut"));
+        assert_eq!(edit_command(EDIT_COPY_ID), Some("copy"));
+        assert_eq!(edit_command(EDIT_PASTE_ID), Some("paste"));
+        assert_eq!(edit_command(EDIT_SELECT_ALL_ID), Some("selectAll"));
+    }
+
+    #[test]
+    fn the_three_id_families_do_not_overlap() {
         for id in [ZOOM_IN_ID, ZOOM_OUT_ID, ZOOM_RESET_ID] {
             assert!(zoom_action(id).is_some());
             assert_eq!(app_command(id), None);
+            assert_eq!(edit_command(id), None);
         }
         for id in [FILE_NEW_ID, FILE_OPEN_ID, APP_SETTINGS_ID, EDIT_FIND_ID] {
             assert!(zoom_action(id).is_none());
+            assert!(app_command(id).is_some());
+            assert_eq!(edit_command(id), None);
+        }
+        for id in [
+            EDIT_UNDO_ID,
+            EDIT_REDO_ID,
+            EDIT_CUT_ID,
+            EDIT_COPY_ID,
+            EDIT_PASTE_ID,
+            EDIT_SELECT_ALL_ID,
+        ] {
+            assert!(zoom_action(id).is_none());
+            assert_eq!(app_command(id), None);
+            assert!(edit_command(id).is_some());
         }
     }
 
-    /// Predefined items (Quit, Copy, Minimise…) must fall through untouched.
+    /// Predefined items (Quit, Minimise…) and anything unknown must fall through
+    /// all three dispatchers untouched.
     #[test]
-    fn unknown_ids_are_ignored_by_both() {
+    fn unknown_ids_are_ignored_by_all() {
         assert!(zoom_action("some.other.item").is_none());
         assert_eq!(app_command("some.other.item"), None);
+        assert_eq!(edit_command("some.other.item"), None);
     }
 }

@@ -9,6 +9,7 @@ import { getEditTarget, runInEditTarget, subscribeEditTarget } from '../lib/edit
 import type { EditCommand } from '../lib/editTarget';
 import { getNavState, runBackHandler, subscribeNavState } from '../lib/navState';
 import type { NavState } from '../lib/navState';
+import { isMacPlatform } from '../lib/platform';
 import { readClipboardText } from '../utils/clipboard';
 // The bundled app icon, straight from the source Tauri ships to the OS, so the
 // bar and the taskbar/dock can never show different marks. Vite hashes and emits
@@ -18,15 +19,10 @@ import appLogo from '../../src-tauri/icons/128x128.png';
 /** Matches the `ZoomAction` wire format in `src-tauri/src/zoom.rs`. */
 export type ZoomAction = 'in' | 'out' | 'reset';
 
-/**
- * Whether to lay the bar out for macOS, where the window keeps its real
- * decorations: the traffic lights float over our header (`titleBarStyle:
- * "Overlay"`), so we reserve space at the left and draw no window buttons of
- * our own. Every other platform runs undecorated and owns the whole bar.
- */
-export function isMacPlatform(userAgent: string): boolean {
-    return /Mac(intosh| OS X)/.test(userAgent);
-}
+// `isMacPlatform` now lives in `lib/platform.ts` so surfaces below the bar can
+// share it, but it is still re-exported here — this is where its callers and
+// tests have always reached for it.
+export { isMacPlatform };
 
 /** Modifier as written in the menu's shortcut hints. */
 export function modifierLabel(isMac: boolean): string {
@@ -128,6 +124,14 @@ export const APP_COMMAND_ROUTE: Record<AppCommand, string> = {
  * [`AppCommand`] name — keep it in step with `src-tauri/src/menu.rs`.
  */
 export const MENU_COMMAND_EVENT = 'menu:command';
+
+/**
+ * Event the macOS system menu bar sends when one of its Edit items is chosen.
+ * Kept apart from [`MENU_COMMAND_EVENT`] so the two payloads stay independently
+ * typed: this one is an [`EditCommand`] name, dispatched through
+ * `runEditMenuCommand` — keep it in step with `src-tauri/src/menu.rs`.
+ */
+export const MENU_EDIT_EVENT = 'menu:edit-command';
 
 /**
  * Maps a keydown to an app command. Only the shortcuts the app itself owns are
@@ -375,19 +379,27 @@ export default function TitleBar() {
 
     // macOS drives File/Edit/View from the system menu bar. Its navigating items
     // can't route on their own — the router lives here — so the backend forwards
-    // them as commands.
+    // them as commands; and its Edit items are custom (not predefined) precisely
+    // so they can be forwarded too, landing on the table's claim or the focused
+    // field exactly as the in-window Edit menu does elsewhere.
     useEffect(() => {
         if (!isMac) return;
-        let unlisten: (() => void) | undefined;
+        const stops: Array<() => void> = [];
         let active = true;
 
         void (async () => {
             try {
-                const stop = await listen<AppCommand>(MENU_COMMAND_EVENT, (event) =>
+                const stopCommand = await listen<AppCommand>(MENU_COMMAND_EVENT, (event) =>
                     runCommand(event.payload),
                 );
-                if (active) unlisten = stop;
-                else stop();
+                const stopEdit = await listen<EditCommand>(MENU_EDIT_EVENT, (event) =>
+                    void runEditMenuCommand(event.payload),
+                );
+                if (active) stops.push(stopCommand, stopEdit);
+                else {
+                    stopCommand();
+                    stopEdit();
+                }
             } catch {
                 // Not running under Tauri — there is no native menu either.
             }
@@ -395,7 +407,7 @@ export default function TitleBar() {
 
         return () => {
             active = false;
-            unlisten?.();
+            stops.forEach((stop) => stop());
         };
     }, [isMac, runCommand]);
 

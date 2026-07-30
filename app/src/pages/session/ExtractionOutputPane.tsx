@@ -15,6 +15,7 @@ import type { DocumentPageResult, ProvenanceCell } from '../../features/extracti
 import type { LineWord } from '../../features/extraction/types';
 import { useTableEditor } from '../../features/extraction/useTableEditor';
 import { setEditTarget } from '../../lib/editTarget';
+import { isMacPlatform } from '../../lib/platform';
 import { buildTableMenu } from './tableCommands';
 import type { MenuTarget } from './tableCommands';
 import { iconBtnClass } from './sessionToolbar';
@@ -189,6 +190,15 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
 
     const [helpOpen, setHelpOpen] = useState(false);
 
+    // On macOS the ⌘Z/⌘A/⌘C/⌘X accelerators belong to the system menu bar, which
+    // delivers them through the Edit menu back to this editor via its claim (see
+    // menu.rs → runEditMenuCommand → editTarget). The keydown branch below must
+    // then leave them alone, or the command would run twice — the same rule
+    // TitleBar follows for its own accelerators.
+    const [isMac] = useState(() =>
+        typeof navigator === 'undefined' ? false : isMacPlatform(navigator.userAgent),
+    );
+
     // Cells worth a second look, in reading order — turns proofreading from a
     // scan of the whole table into a worklist (see the toolbar's review nav).
     // Editing or marking a cell verified resolves it out of the list.
@@ -355,6 +365,11 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
             const onButton = target?.tagName === 'BUTTON';
 
             if (e.ctrlKey || e.metaKey) {
+                // macOS: the system menu bar owns these and routes them here via
+                // the Edit-menu claim, so handling them again would double every
+                // one (undo jumping two steps). Off macOS this is their only
+                // handler — the webview sees the keystroke first.
+                if (isMac) return;
                 switch (e.key.toLowerCase()) {
                     case 'z': if (e.shiftKey) editor.redo(); else editor.undo(); break;
                     case 'y': editor.redo(); break;
@@ -416,9 +431,13 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
     });
 
     // Ctrl+V arrives as a paste event carrying the clipboard data, which needs
-    // no clipboard-read permission (see useTableEditor.pasteText).
+    // no clipboard-read permission (see useTableEditor.pasteText). On macOS ⌘V
+    // instead belongs to the system menu bar, which delivers Paste through the
+    // Edit-menu claim (editor.pasteFromClipboard) — riding the native event as
+    // well would paste twice, so this path is off there, matching the ⌘-key
+    // guard in the keydown handler above.
     useEffect(() => {
-        if (outputView !== 'table' || isExtracting || !provenanceCells?.length || editor.editing || !paneActive) return;
+        if (isMac || outputView !== 'table' || isExtracting || !provenanceCells?.length || editor.editing || !paneActive) return;
         const handler = (e: ClipboardEvent) => {
             const target = e.target as HTMLElement | null;
             if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;

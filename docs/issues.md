@@ -13,11 +13,13 @@
 
 ### Platform / macOS
 
-- The system menu bar's **Edit** items (Undo/Redo/Cut/Copy/Paste/Select All) are Tauri's
-  predefined native ones, which raise no menu event — so they can't reach the session
-  table's editor the way the Windows/Linux title-bar menu does, and ⌘Z likely never gets
-  to the table at all. Needs a Mac to build and test on:
-  [handoff-macos-edit-menu.md](handoff-macos-edit-menu.md).
+- ~~The system menu bar's **Edit** items are Tauri's predefined native ones, which raise no
+  menu event, so they can't reach the session table's editor.~~ **Resolved** — see the
+  table-editor entry under *UI / Frontend*. The predefined Edit items were replaced with
+  custom ones that emit `menu:edit-command`, routed through the same `runEditMenuCommand`
+  the Windows/Linux menu uses. Verified by CI (unit tests on both sides); the on-hardware
+  checklist in [handoff-macos-edit-menu.md](handoff-macos-edit-menu.md) §4 still wants a
+  human pass — flagged in the UI/Frontend entry below.
 
 ### Build / Packaging
 
@@ -240,8 +242,17 @@ Added excel export support
      `document.execCommand` unconditionally, which acts on the focused *text field* — so
      with the table focused every one of those items was dead. A surface can now claim them
      while focused (`lib/editTarget.ts`), and the rows report its real availability instead
-     of standing enabled over an empty undo stack. Not wired on macOS, whose Edit items are
-     Tauri's predefined native ones and can't be intercepted from the frontend.
+     of standing enabled over an empty undo stack. **macOS** now routes too: its system menu
+     bar had *predefined* native Edit items that raise no menu event, so they were replaced
+     with custom items (`src-tauri/src/menu.rs`) emitting `menu:edit-command`, which
+     `TitleBar.tsx` forwards through the same `runEditMenuCommand` dispatcher — claimant
+     first, focused field via `execCommand` otherwise. The pane leaves the ⌘-key
+     accelerators to the menu bar on macOS (`isMacPlatform` guard in
+     `ExtractionOutputPane.tsx`, lifted to `lib/platform.ts`) so nothing fires twice.
+     Covered by unit tests on both sides; the hardware checklist in
+     [handoff-macos-edit-menu.md](handoff-macos-edit-menu.md) §4 (does ⌘Z reach the table
+     once, no clipboard prompt on Paste, the table visuals) has **not** been run on a Mac
+     yet and should be before release.
    - **Paste raised a browser permission prompt** ("localhost:1420 wants to see text and
      images copied to the clipboard", Block/Allow) — an on-device app asking the user's
      permission to read their own clipboard, which reads as a web page, not a desktop app.
