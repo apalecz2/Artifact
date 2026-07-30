@@ -7,7 +7,7 @@ import { WordEditModal } from '../../features/extraction/WordEditModal';
 import type { DocumentPageResult } from '../../features/extraction/types';
 import type { ProcessProgress } from '../../features/extraction/useDocumentExtraction';
 import type { BoundingBox } from '../../features/ocr/types';
-import { iconBtnClass } from './sessionToolbar';
+import { iconBtnClass, sourceToolbarClasses } from './sessionToolbar';
 import { SourceHelp } from './SessionHelp';
 
 type EditingState = { box?: BoundingBox | null; id?: string; text?: string } | null;
@@ -23,7 +23,11 @@ const OVERLAY_MODES: { value: OverlayMode; label: string; description: string }[
 // image. A dropdown (rather than a segmented control) scales to a third
 // option without crowding the floating toolbar, and opens upward since this
 // toolbar sits at the bottom of the pane.
-function OverlayModeMenu({ mode, setMode }: { mode: OverlayMode; setMode: (mode: OverlayMode) => void }): React.ReactElement {
+function OverlayModeMenu({ mode, setMode, tb }: {
+    mode: OverlayMode;
+    setMode: (mode: OverlayMode) => void;
+    tb: ReturnType<typeof sourceToolbarClasses>;
+}): React.ReactElement {
     const [open, setOpen] = React.useState(false);
     const ref = React.useRef<HTMLDivElement>(null);
 
@@ -44,11 +48,16 @@ function OverlayModeMenu({ mode, setMode }: { mode: OverlayMode; setMode: (mode:
                 onClick={() => setOpen(o => !o)}
                 aria-haspopup="true"
                 aria-expanded={open}
+                aria-label={`Overlay: ${current.label}`}
                 title="Choose which OCR-confidence regions are shown on the document"
-                className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-surface-variant px-3 text-sm text-on-surface transition-colors shadow-sm hover:bg-surface-container-high"
+                className={`flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-surface-variant ${tb.pad} text-sm text-on-surface transition-colors shadow-sm hover:bg-surface-container-high`}
             >
                 <Icon name="layers" size={16} />
-                Overlay: {current.label}
+                {/* The mode is the useful half of the label, so the "Overlay:"
+                    qualifier drops a step before the mode name does. */}
+                <span className={`${tb.label} whitespace-nowrap`}>
+                    <span className={tb.detail}>Overlay:&nbsp;</span>{current.label}
+                </span>
                 <Icon name="expand_more" size={14} className="leading-none" />
             </button>
 
@@ -140,6 +149,11 @@ export function SourceDocumentPane(props: SourceDocumentPaneProps): React.ReactE
     const [imageLoadFailed, setImageLoadFailed] = React.useState(false);
 
     const [helpOpen, setHelpOpen] = React.useState(false);
+
+    // Where this toolbar drops its labels. Page-count dependent: the navigator
+    // below is only rendered for a multi-page document, and it takes enough of
+    // the row to move every threshold (see sourceToolbarClasses).
+    const tb = sourceToolbarClasses(totalPages > 1);
 
     // Reset whenever the source image changes (page switch, retry, or a new
     // session), so a prior failure doesn't stick to a freshly-loaded image.
@@ -264,22 +278,26 @@ export function SourceDocumentPane(props: SourceDocumentPaneProps): React.ReactE
                             <button
                                 onClick={() => setActiveTool('draw')}
                                 aria-pressed={activeTool === 'draw'}
-                                className={`flex h-7 items-center gap-1 px-3 rounded-md text-sm transition-colors ${activeTool === 'draw' ? 'bg-surface text-primary shadow-sm' : 'text-on-surface-variant hover:text-on-surface'}`}
+                                aria-label="Edit"
+                                title="Edit — draw, edit and delete text regions"
+                                className={`flex h-7 items-center gap-1 rounded-md text-sm transition-colors ${tb.pad} ${activeTool === 'draw' ? 'bg-surface text-primary shadow-sm' : 'text-on-surface-variant hover:text-on-surface'}`}
                             >
                                 <Icon name="draw" size={16} />
-                                Edit
+                                <span className={tb.label}>Edit</span>
                             </button>
                             <button
                                 onClick={() => setActiveTool('pan')}
                                 aria-pressed={activeTool === 'pan'}
-                                className={`flex h-7 items-center gap-1 px-3 rounded-md text-sm transition-colors ${activeTool === 'pan' ? 'bg-surface text-primary shadow-sm' : 'text-on-surface-variant hover:text-on-surface'}`}
+                                aria-label="Pan"
+                                title="Pan — drag to move the document"
+                                className={`flex h-7 items-center gap-1 rounded-md text-sm transition-colors ${tb.pad} ${activeTool === 'pan' ? 'bg-surface text-primary shadow-sm' : 'text-on-surface-variant hover:text-on-surface'}`}
                             >
                                 <Icon name="pan_tool" size={16} />
-                                Pan
+                                <span className={tb.label}>Pan</span>
                             </button>
                         </div>
 
-                        <OverlayModeMenu mode={overlayMode} setMode={setOverlayMode} />
+                        <OverlayModeMenu mode={overlayMode} setMode={setOverlayMode} tb={tb} />
 
                         {totalPages > 1 && (
                             /* Page Navigation */
@@ -321,7 +339,10 @@ export function SourceDocumentPane(props: SourceDocumentPaneProps): React.ReactE
 
                         {/* Zoom Controls — zoom is relative to the fitted size, so
                             100% always means "fits the pane" and 50%/200% mean half/
-                            double that, regardless of window size. */}
+                            double that, regardless of window size. The slider is the
+                            first thing to go on a narrow pane: it only duplicates the
+                            −/+ buttons beside it. The percentage readout outlives it,
+                            since nothing else reports the current zoom. */}
                         <div className="flex shrink-0 items-center gap-1">
                             <button
                                 aria-label="Zoom out"
@@ -340,10 +361,10 @@ export function SourceDocumentPane(props: SourceDocumentPaneProps): React.ReactE
                                 step="0.05"
                                 value={zoom}
                                 onChange={(e) => setZoom(parseFloat(e.target.value))}
-                                className="hidden w-20 accent-primary cursor-pointer sm:block"
+                                className={`w-20 accent-primary cursor-pointer ${tb.detailBlock}`}
                                 aria-label="Zoom level"
                             />
-                            <span className="hidden w-10 select-none text-center text-xs tabular-nums text-on-surface-variant sm:block">
+                            <span className={`w-10 select-none text-center text-xs tabular-nums text-on-surface-variant ${tb.labelBlock}`}>
                                 {Math.round(zoom * 100)}%
                             </span>
 

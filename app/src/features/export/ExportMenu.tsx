@@ -16,6 +16,12 @@ interface ExportMenuProps {
     /** 'primary' marks this as the happy-path finish action (filled, on-brand);
      *  default is the neutral chrome-button look used elsewhere. */
     variant?: 'default' | 'primary';
+    /** Drop the trigger's text label on a narrow container, leaving the icon —
+     *  for the session's output toolbar, which shrinks with the split divider and
+     *  runs out of room for its labels at `@3xl` (`outputToolbarLabelClass`,
+     *  sessionToolbar.tsx — keep the two in step). Requires an `@container`
+     *  ancestor, so it's opt-in rather than the default. */
+    collapsible?: boolean;
 }
 
 function normalizeRows(
@@ -54,7 +60,7 @@ const FORMAT_CONFIG: Record<ExportFormatKey, TextFormatEntry | BinaryFormatEntry
     txt:  { kind: 'text',   label: 'Plain text', icon: 'text_fields', serialize: toPlainText, saveFormat: { ext: 'txt', label: 'Text files',  filters: [{ name: 'Text', extensions: ['txt']  }] } },
 };
 
-export function ExportMenu({ provenanceCells, savedCsv, fileStem, disabled, openUp, variant = 'default' }: ExportMenuProps) {
+export function ExportMenu({ provenanceCells, savedCsv, fileStem, disabled, openUp, variant = 'default', collapsible }: ExportMenuProps) {
     const [open, setOpen] = useState(false);
     const [copied, setCopied] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
@@ -96,16 +102,20 @@ export function ExportMenu({ provenanceCells, savedCsv, fileStem, disabled, open
             <button
                 onClick={() => setOpen(o => !o)}
                 disabled={disabled || !hasData}
-                className={`flex h-9 items-center gap-1 px-3 text-sm rounded-lg disabled:opacity-50 transition-colors ${
+                className={`flex h-9 items-center gap-1 text-sm rounded-lg disabled:opacity-50 transition-colors ${
+                    collapsible ? 'px-2 @3xl:px-3' : 'px-3'
+                } ${
                     variant === 'primary'
                         ? 'bg-primary text-on-primary hover:bg-primary/90'
                         : 'bg-surface-variant text-on-surface-variant hover:bg-surface-container-high'
                 }`}
                 aria-haspopup="true"
                 aria-expanded={open}
+                aria-label={copied ? 'Copied!' : 'Export'}
+                title={copied ? 'Copied!' : 'Export table'}
             >
                 <Icon name={copied ? 'check' : 'download'} size={16} />
-                {copied ? 'Copied!' : 'Export'}
+                <span className={collapsible ? 'hidden @3xl:inline' : undefined}>{copied ? 'Copied!' : 'Export'}</span>
                 <Icon name="expand_more" size={14} className="leading-none" />
             </button>
 

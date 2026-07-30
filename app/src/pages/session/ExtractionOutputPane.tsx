@@ -17,7 +17,7 @@ import { useTableEditor } from '../../features/extraction/useTableEditor';
 import { setEditTarget } from '../../lib/editTarget';
 import { buildTableMenu } from './tableCommands';
 import type { MenuTarget } from './tableCommands';
-import { iconBtnClass } from './sessionToolbar';
+import { iconBtnClass, viewToggleLabelClass, outputToolbarLabelClass, outputToolbarProseClass, outputToolbarCountClass } from './sessionToolbar';
 import { OutputHelp } from './SessionHelp';
 
 interface ExtractionOutputPaneProps {
@@ -439,20 +439,30 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
                 </h1>
                 {activePage && (
                     <div className="flex shrink-0 items-center gap-2">
+                        {/* The heading beside this already names the active view, so
+                            on a narrow pane the icons carry the toggle on their own
+                            rather than squeezing "Formatted Table" against a
+                            truncated title. */}
                         <div className="flex shrink-0 bg-surface-variant rounded-lg p-1">
                             <button
                                 onClick={() => setOutputView('raw')}
                                 aria-pressed={outputView === 'raw'}
-                                className={`h-7 px-3 rounded-md text-sm transition-colors ${outputView === 'raw' ? 'bg-surface text-primary shadow-sm' : 'text-on-surface-variant hover:text-on-surface'}`}
+                                aria-label="Raw Text"
+                                title="Raw Text"
+                                className={`flex h-7 items-center gap-1.5 px-2 rounded-md text-sm transition-colors @xl:px-3 ${outputView === 'raw' ? 'bg-surface text-primary shadow-sm' : 'text-on-surface-variant hover:text-on-surface'}`}
                             >
-                                Raw Text
+                                <Icon name="notes" size={16} />
+                                <span className={viewToggleLabelClass}>Raw Text</span>
                             </button>
                             <button
                                 onClick={() => setOutputView('table')}
                                 aria-pressed={outputView === 'table'}
-                                className={`h-7 px-3 rounded-md text-sm transition-colors ${outputView === 'table' ? 'bg-surface text-primary shadow-sm' : 'text-on-surface-variant hover:text-on-surface'}`}
+                                aria-label="Formatted Table"
+                                title="Formatted Table"
+                                className={`flex h-7 items-center gap-1.5 px-2 rounded-md text-sm transition-colors @xl:px-3 ${outputView === 'table' ? 'bg-surface text-primary shadow-sm' : 'text-on-surface-variant hover:text-on-surface'}`}
                             >
-                                Formatted Table
+                                <Icon name="table" size={16} />
+                                <span className={viewToggleLabelClass}>Formatted Table</span>
                             </button>
                         </div>
                         <button
@@ -829,8 +839,14 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
                                                     >
                                                         <Icon name="chevron_left" size={18} />
                                                     </button>
-                                                    <span className="whitespace-nowrap px-1 text-sm text-on-surface-variant">
-                                                        {flaggedCells.length} cell{flaggedCells.length === 1 ? '' : 's'} to review
+                                                    {/* The count is the part that has to survive a
+                                                        narrow pane; the wording around it doesn't. */}
+                                                    <span
+                                                        className="whitespace-nowrap px-1 text-sm text-on-surface-variant"
+                                                        title={`${flaggedCells.length} cell${flaggedCells.length === 1 ? '' : 's'} to review`}
+                                                    >
+                                                        {flaggedCells.length}
+                                                        <span className={outputToolbarProseClass}>&nbsp;cell{flaggedCells.length === 1 ? '' : 's'} to review</span>
                                                     </span>
                                                     <button
                                                         aria-label="Next cell to review"
@@ -846,16 +862,19 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
                                                 // The worklist is empty — every cell is either high
                                                 // confidence or manually verified. Say so instead of
                                                 // silently dropping the review tools.
-                                                <div className="flex shrink-0 items-center gap-1.5 pr-3 mr-1 border-r border-outline-variant text-sm text-green-700 dark:text-green-400">
+                                                <div
+                                                    className="flex shrink-0 items-center gap-1.5 pr-3 mr-1 border-r border-outline-variant text-sm text-green-700 dark:text-green-400"
+                                                    title="All cells reviewed"
+                                                >
                                                     <Icon name="check_circle" size={18} fill={1} />
-                                                    <span className="whitespace-nowrap">All cells reviewed</span>
+                                                    <span className={`${outputToolbarProseClass} whitespace-nowrap`}>All cells reviewed</span>
                                                 </div>
                                             )
                                         )}
                                         {selectedProvCell && (
                                             <div className="flex shrink-0 items-center gap-1 pr-2 mr-1 border-r border-outline-variant">
                                                 {editor.selectionCount > 1 && (
-                                                    <span className="whitespace-nowrap px-1 text-sm text-on-surface-variant">
+                                                    <span className={`${outputToolbarCountClass} whitespace-nowrap px-1 text-sm text-on-surface-variant`}>
                                                         {editor.selectionCount} selected
                                                     </span>
                                                 )}
@@ -915,12 +934,13 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
                                                     }}
                                                     aria-haspopup="menu"
                                                     aria-expanded={menu?.target === 'toolbar'}
+                                                    aria-label="Edit table"
                                                     title="Rows, columns and other table edits"
-                                                    className="flex h-9 shrink-0 items-center gap-1 rounded-lg border border-outline-variant px-3 text-sm text-on-surface-variant transition-colors hover:bg-surface-variant"
+                                                    className="flex h-9 shrink-0 items-center gap-1 rounded-lg border border-outline-variant px-2 text-sm text-on-surface-variant transition-colors hover:bg-surface-variant @3xl:px-3"
                                                     type="button"
                                                 >
                                                     <Icon name="grid_on" size={16} />
-                                                    Edit table
+                                                    <span className={outputToolbarLabelClass}>Edit table</span>
                                                     <Icon name="expand_more" size={14} className="leading-none" />
                                                 </button>
                                             </div>
@@ -931,13 +951,17 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
                                             fileStem={fileStem}
                                             openUp
                                             variant="primary"
+                                            collapsible
                                         />
                                         <button
                                             onClick={() => handleFormatTable()}
                                             disabled={isExtracting}
-                                            className="flex h-9 shrink-0 items-center px-4 text-sm border border-outline-variant text-on-surface-variant rounded-lg hover:bg-surface-variant disabled:opacity-50 transition-colors"
+                                            aria-label="Re-extract"
+                                            title="Re-extract this page's table"
+                                            className="flex h-9 shrink-0 items-center gap-1.5 px-2 text-sm border border-outline-variant text-on-surface-variant rounded-lg hover:bg-surface-variant disabled:opacity-50 transition-colors @3xl:px-3"
                                         >
-                                            Re-extract
+                                            <Icon name="refresh" size={18} />
+                                            <span className={outputToolbarLabelClass}>Re-extract</span>
                                         </button>
                                     </>
                                 )}
