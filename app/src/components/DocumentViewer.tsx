@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import type { OcrWord, BoundingBox } from '../features/ocr/types';
+import { useTheme } from '../hooks/useTheme';
 
 export interface DocumentViewerHandle {
     fitToScreen: () => void;
@@ -115,6 +116,9 @@ const DocumentViewer = forwardRef<DocumentViewerHandle, DocumentViewerProps>(fun
     const [center, setCenter] = useState({ x: 0, y: 0 });
     // Whether the loaded document is dark overall, so highlights contrast with it.
     const [isImageDark, setIsImageDark] = useState(false);
+    // The pane's backdrop follows the app theme, so the page's own shadow has to
+    // know it to keep the image separated from it (see imageShadow below).
+    const [theme] = useTheme();
     const svgRef = useRef<SVGSVGElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const imgRef = useRef<HTMLImageElement>(null);
@@ -151,6 +155,23 @@ const DocumentViewer = forwardRef<DocumentViewerHandle, DocumentViewerProps>(fun
     const scale = fitScale !== null ? clampZoom(zoom) * fitScale : 1;
     const offsetX = containerSize.width / 2 - center.x * scale;
     const offsetY = containerSize.height / 2 - center.y * scale;
+
+    // A scan whose overall tone matches the backdrop — a light page in light mode,
+    // a dark one in dark mode — meets the surface with no visible edge, so give it
+    // one: a soft halo in the opposite tone. When image and backdrop already
+    // contrast, the usual hairline shadow is enough. Reuses the same darkness
+    // estimate that picks the highlight color.
+    // Lengths are divided by `scale` because the shadow sits on the transformed
+    // wrapper and is scaled along with it — at the fitted zoom of a large page
+    // (scale well under 1) a fixed halo would shrink away to nothing.
+    const shadowPx = (v: number) => `${v / scale}px`;
+    const isThemeDark = theme === 'dark';
+    const imageShadow =
+        isImageDark !== isThemeDark
+            ? `0 ${shadowPx(1)} ${shadowPx(2)} rgb(0 0 0 / 0.1)`
+            : isThemeDark
+                ? `0 0 0 ${shadowPx(1)} rgb(255 255 255 / 0.25), 0 0 ${shadowPx(28)} ${shadowPx(4)} rgb(255 255 255 / 0.13)`
+                : `0 0 0 ${shadowPx(1)} rgb(0 0 0 / 0.12), 0 ${shadowPx(2)} ${shadowPx(28)} ${shadowPx(4)} rgb(0 0 0 / 0.25)`;
 
     // Snapshot of the current view, read inside stable event handlers (wheel,
     // drag, imperative calls) without making them stale or re-attached.
@@ -356,10 +377,11 @@ const DocumentViewer = forwardRef<DocumentViewerHandle, DocumentViewerProps>(fun
             )}
 
             <div
-                className="absolute left-0 top-0 shadow-sm shadow-black/10"
+                className="absolute left-0 top-0"
                 style={{
                     transform: `translate(${offsetX}px, ${offsetY}px) scale(${scale})`,
                     transformOrigin: '0 0',
+                    boxShadow: imageShadow,
                     opacity: isReady && fitScale !== null ? 1 : 0,
                     // No transition until the initial fit is in place, so applying that
                     // fit can't animate; afterwards, fade in and keep the smooth zoom.

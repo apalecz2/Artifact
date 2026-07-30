@@ -24,6 +24,14 @@ beforeAll(() => {
     SVGSVGElement.prototype.getScreenCTM = function () {
         return { inverse: () => ({}) };
     };
+    // jsdom has no matchMedia, and useTheme (which the page shadow reads) consults
+    // it whenever no explicit theme is stored.
+    vi.stubGlobal('matchMedia', (query: string) => ({
+        matches: false,
+        media: query,
+        addEventListener() {},
+        removeEventListener() {},
+    }));
 });
 
 function renderViewer(props: Partial<React.ComponentProps<typeof DocumentViewer>> = {}) {

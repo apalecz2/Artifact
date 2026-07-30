@@ -4,14 +4,9 @@
 
 ### UI / Frontend
 
-- Screenshots don't show up well against the same theme -- dark screenshot against dark mode bg + vice versa
-  - Could add drop shadow, or outline?
 - toolbars should minimize tools to just icons when the width of that side is small
 - option to collapse pannels in session
 - note on poor quality extractions -- "try fixing the OCR on the left for better results"
-
-- Click off of the table to deselect an item
-
 - Review claims of what hotkeys exist for table editing (alt ->, f3 etc)
   - are these true? 
   - update the help sections accordingly
