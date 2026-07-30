@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Icon from '../../components/Icon';
 import type { ConsentContext, HardwareInfo, SetupConfig, SetupMode, SetupStep } from './types';
+import { setBackHandler } from '../../lib/navState';
 import { acceptedEulaVersion } from '../legal/eulaAcceptance';
 import WelcomeStep from './steps/WelcomeStep';
 import TermsStep from './steps/TermsStep';
@@ -17,6 +18,11 @@ interface Props {
     /** False when the assets are already installed and this run exists only to
      *  collect consent for a bumped EULA — then Terms is the whole wizard. */
     installNeeded: boolean;
+    /** Set only when the wizard can be walked away from: a re-run the user asked
+     *  for, over an install that is already fine. Undefined for a first install and
+     *  for a consent run, which have to be finished. Drives the window's Back
+     *  button, which is what a user who changed their mind reaches for. */
+    onExit?: () => void;
     onComplete: () => void;
 }
 
@@ -35,6 +41,9 @@ const STEP_LABELS: Record<SetupStep, string> = {
 // progress bar reflects whichever path this run actually takes. Download + verify +
 // install are a single step (the hash is checked during the download, so there's no
 // separate pass).
+/** Steps a re-run may simply be walked away from, having done nothing yet. */
+const EXITABLE_STEPS: SetupStep[] = ['welcome', 'terms', 'config'];
+
 function stepsFor(mode: SetupMode, needsEula: boolean, needsInstall: boolean): SetupStep[] {
     if (!needsInstall) return ['terms'];
     const steps: SetupStep[] = ['welcome'];
@@ -43,7 +52,7 @@ function stepsFor(mode: SetupMode, needsEula: boolean, needsInstall: boolean): S
     return [...steps, 'install', 'complete'];
 }
 
-export default function SetupWizard({ eulaAccepted, onAcceptEula, installNeeded, onComplete }: Props): React.ReactElement {
+export default function SetupWizard({ eulaAccepted, onAcceptEula, installNeeded, onExit, onComplete }: Props): React.ReactElement {
     // Both are frozen at mount: accepting the EULA flips `eulaAccepted` mid-run, and
     // recomputing from it would drop the Terms pill out of the progress bar while the
     // user is still walking the list.
@@ -65,6 +74,27 @@ export default function SetupWizard({ eulaAccepted, onAcceptEula, installNeeded,
 
     const stepOrder = stepsFor(mode, needsEula, needsInstall);
     const currentIdx = stepOrder.indexOf(step);
+
+    // Whether leaving is on offer right now — drives both the button below and the
+    // window's Back button, so the two can't disagree.
+    //
+    // Only on the steps that are still just *asking*, where walking away costs
+    // nothing: `install` owns its own cancellation, because a download in flight
+    // has to be stopped and confirmed rather than abandoned behind a closing screen
+    // (its *Cancel setup* lands back on Welcome), and `complete` still has work to
+    // do — its Launch button is what persists the new paths and reloads into them.
+    // A *failed* install is offered again regardless of step: nothing is running,
+    // and a re-run that got nowhere leaves the install it started from untouched,
+    // so "Start over" shouldn't be the only way out.
+    const exit = onExit && (errorMsg !== null || EXITABLE_STEPS.includes(step)) ? onExit : null;
+
+    // Give the window's Back button a meaning while this screen is up, since the
+    // routes it would otherwise move through aren't mounted. See lib/navState.ts.
+    useEffect(() => {
+        if (!exit) return;
+        setBackHandler(exit);
+        return () => setBackHandler(null);
+    }, [exit]);
 
     const handleError = (msg: string) => setErrorMsg(msg);
 
@@ -128,6 +158,20 @@ export default function SetupWizard({ eulaAccepted, onAcceptEula, installNeeded,
             {/* Step content */}
             <div className="flex-1 overflow-y-auto flex items-start justify-center p-8">
                 <div className="w-full max-w-2xl">
+                    {/* The way out of a re-run, for a user who has changed their mind.
+                        Quiet and above the step's own Back (which walks the wizard's
+                        list), because leaving entirely is the rarer of the two. */}
+                    {exit && (
+                        <button
+                            type="button"
+                            onClick={exit}
+                            className="-ml-2 mb-6 flex items-center gap-1.5 rounded-lg px-2 py-1.5 font-label-md text-label-md text-on-surface-variant transition-colors hover:bg-surface-container-high hover:text-on-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+                        >
+                            <Icon name="arrow_back" size={18} />
+                            Back to Anchor
+                        </button>
+                    )}
+
                     {errorMsg ? (
                         <ErrorView message={errorMsg} onRetry={() => { setErrorMsg(null); setStep('welcome'); }} />
                     ) : (

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { hasSetting, readSetting, writeSetting } from '../../lib/settings';
 import type { Backend, HardwareInfo, SetupPaths } from './types';
@@ -6,6 +6,11 @@ import type { Backend, HardwareInfo, SetupPaths } from './types';
 interface SetupCheckState {
     isComplete: boolean;
     isLoading: boolean;
+    /** The wizard is up only because the user asked for it — a re-run over an
+     *  install that checks out — so they may back out and land in the app again.
+     *  False for an install that is genuinely incomplete, and false when the check
+     *  itself failed: there is nothing behind the wizard to return to. */
+    canCancelRerun: boolean;
 }
 
 /** When set in localStorage, the wizard is shown even if assets are already on
@@ -24,18 +29,34 @@ export function clearSetupRerun(): void {
     localStorage.removeItem(FORCE_SETUP_KEY);
 }
 
-export function useSetupCheck(): SetupCheckState {
-    const [state, setState] = useState<SetupCheckState>({ isComplete: false, isLoading: true });
+export interface SetupCheck extends SetupCheckState {
+    /** Abandon a re-run and hand the app back, in place — no reload, since nothing
+     *  was changed. Only meaningful while `canCancelRerun`. */
+    cancelRerun: () => void;
+}
+
+export function useSetupCheck(): SetupCheck {
+    const [state, setState] = useState<SetupCheckState>({
+        isComplete: false,
+        isLoading: true,
+        canCancelRerun: false,
+    });
+
+    const cancelRerun = useCallback(() => {
+        clearSetupRerun();
+        setState({ isComplete: true, isLoading: false, canCancelRerun: false });
+    }, []);
 
     useEffect(() => {
         let cancelled = false;
 
         async function check() {
-            // Explicit re-run request always wins, even when assets exist.
-            if (localStorage.getItem(FORCE_SETUP_KEY) === '1') {
-                if (!cancelled) setState({ isComplete: false, isLoading: false });
-                return;
-            }
+            // An explicit re-run request always wins, even when the assets are all
+            // there — but it is deliberately *not* a short-circuit. Probing anyway is
+            // what separates the two reasons to be here: a user who chose to re-run
+            // over a working install (and may therefore walk away from it) from one
+            // whose install is actually broken (who may not).
+            const forced = localStorage.getItem(FORCE_SETUP_KEY) === '1';
 
             try {
                 const complete = await invoke<boolean>('check_setup_complete');
@@ -82,9 +103,17 @@ export function useSetupCheck(): SetupCheckState {
                     }
                 }
 
-                if (!cancelled) setState({ isComplete: complete, isLoading: false });
+                if (!cancelled) setState({
+                    isComplete: complete && !forced,
+                    isLoading: false,
+                    canCancelRerun: complete && forced,
+                });
             } catch {
-                if (!cancelled) setState({ isComplete: false, isLoading: false });
+                if (!cancelled) setState({
+                    isComplete: false,
+                    isLoading: false,
+                    canCancelRerun: false,
+                });
             }
         }
 
@@ -92,5 +121,5 @@ export function useSetupCheck(): SetupCheckState {
         return () => { cancelled = true; };
     }, []);
 
-    return state;
+    return { ...state, cancelRerun };
 }

@@ -53,6 +53,8 @@ interface ExtractionOutputPaneProps {
     provenanceCells: ProvenanceCell[][] | null;
     selectedCell: SelectedCell;
     handleCellClick: (cell: ProvenanceCell, opts?: { autoZoom?: boolean }) => void;
+    /** Drop the cell selection — clicking off the grid deselects. */
+    clearCellSelection: () => void;
     /** Commit an edited grid: updates the session's table state and persists it.
      *  Every table edit — a typed value, a deleted row, an undo — goes through
      *  here as a whole new grid. */
@@ -174,7 +176,7 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
         activePage, isDbLoading, showProcessing, processingCancelled,
         rawLines, selectedWordId, highlightedWordId, setHighlightedWordId, selectWord, selectedWordRef, handleCopyRawText, rawTextSaved,
         isExtracting, isCancelling, extractionPhase, streamingContent, streamRef, cancelTableFormat,
-        provenanceCells, selectedCell, handleCellClick, onApplyGrid, tableKey, savedCsv, handleCopyTable, hasTable,
+        provenanceCells, selectedCell, handleCellClick, clearCellSelection, onApplyGrid, tableKey, savedCsv, handleCopyTable, hasTable,
         extractionError, llamaError, truncated, contextOverflow, handleFormatTable,
         fileStem,
     } = props;
@@ -252,7 +254,10 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
     // without it, a Delete pressed while editing OCR on the left would silently
     // clear table cells.
     const paneRef = useRef<HTMLDivElement>(null);
+    const tableRef = useRef<HTMLDivElement>(null);
     const [paneActive, setPaneActive] = useState(false);
+    // Registered without a dependency array so each click sees the current
+    // editing state and grid (the clear below depends on both).
     useEffect(() => {
         const onPointerDown = (e: MouseEvent) => {
             const node = e.target as HTMLElement | null;
@@ -261,11 +266,26 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
             // be working — reaching for its Edit ▸ Undo must not first take the
             // table's claim on Undo away.
             if (node?.closest?.('[role="menu"], [data-app-titlebar]')) return;
-            setPaneActive(!!node && !!paneRef.current?.contains(node));
+            const insidePane = !!node && !!paneRef.current?.contains(node);
+            setPaneActive(insidePane);
+
+            // Clicking off the grid — the card's header or legend, the blank
+            // space below the last row, anywhere in the pane that isn't a cell
+            // — drops the selection, the way clicking outside a spreadsheet's
+            // used range does. Two surfaces are exempt because they *act on*
+            // the selection, so deselecting first would disarm the very button
+            // being pressed: the floating action toolbar, and (above) the
+            // command menu and title-bar Edit menu. An open cell editor is also
+            // left alone — that click is the commit, and the committed cell
+            // stays selected.
+            if (!insidePane || !node || editor.editing) return;
+            if (outputView !== 'table' || !provenanceCells?.length) return;
+            if (tableRef.current?.contains(node) || node.closest?.('[data-table-actions]')) return;
+            clearCellSelection();
         };
         document.addEventListener('mousedown', onPointerDown, true);
         return () => document.removeEventListener('mousedown', onPointerDown, true);
-    }, []);
+    });
 
     // Claim the title bar's Edit menu while the table is the focused surface.
     // Its undo history is over the grid, its selection is cells rather than
@@ -646,45 +666,50 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
                                     </div>
                                 }
                             >
-                                <ProvenanceTable
-                                    rows={provenanceCells}
-                                    onCellClick={handleCellClick}
-                                    selectedCell={selectedCell}
-                                    editingCell={editor.editing}
-                                    editingInitialValue={editor.editing?.initial}
-                                    onStartEdit={cell => editor.startEdit({ rowIndex: cell.rowIndex, colIndex: cell.colIndex })}
-                                    onCommitEdit={(cell, value, advance) => editor.commitEdit(cell, value, advance ?? null)}
-                                    onCancelEdit={editor.cancelEdit}
-                                    selectionRange={editor.range}
-                                    onCellPointerDown={(cell, e) => editor.pointerDown(cell, e.shiftKey)}
-                                    onCellPointerEnter={editor.pointerEnter}
-                                    onCellContextMenu={(cell, e) => {
-                                        e.preventDefault();
-                                        editor.contextTarget(cell);
-                                        setMenu({ x: e.clientX, y: e.clientY, target: 'cell' });
-                                    }}
-                                    showHandles
-                                    onSelectRow={(rowIndex, e) => editor.selectRow(rowIndex, e.shiftKey)}
-                                    onSelectColumn={(colIndex, e) => editor.selectColumn(colIndex, e.shiftKey)}
-                                    onSelectAll={editor.selectAll}
-                                    onHandleContextMenu={({ kind, index }, e) => {
-                                        e.preventDefault();
-                                        // Keep an existing whole-row/column selection if the
-                                        // handle is inside it, so the menu acts on all of it.
-                                        if (kind === 'row') {
-                                            const covered = editor.range && editor.range.left === 0
-                                                && editor.range.right === editor.gridCols - 1
-                                                && index >= editor.range.top && index <= editor.range.bottom;
-                                            if (!covered) editor.selectRow(index);
-                                        } else {
-                                            const covered = editor.range && editor.range.top === 0
-                                                && editor.range.bottom === editor.gridRows - 1
-                                                && index >= editor.range.left && index <= editor.range.right;
-                                            if (!covered) editor.selectColumn(index);
-                                        }
-                                        setMenu({ x: e.clientX, y: e.clientY, target: kind });
-                                    }}
-                                />
+                                {/* Bounds the grid for the click-off-to-deselect
+                                    rule above: a mousedown anywhere in the pane
+                                    outside this wrapper clears the selection. */}
+                                <div ref={tableRef}>
+                                    <ProvenanceTable
+                                        rows={provenanceCells}
+                                        onCellClick={handleCellClick}
+                                        selectedCell={selectedCell}
+                                        editingCell={editor.editing}
+                                        editingInitialValue={editor.editing?.initial}
+                                        onStartEdit={cell => editor.startEdit({ rowIndex: cell.rowIndex, colIndex: cell.colIndex })}
+                                        onCommitEdit={(cell, value, advance) => editor.commitEdit(cell, value, advance ?? null)}
+                                        onCancelEdit={editor.cancelEdit}
+                                        selectionRange={editor.range}
+                                        onCellPointerDown={(cell, e) => editor.pointerDown(cell, e.shiftKey)}
+                                        onCellPointerEnter={editor.pointerEnter}
+                                        onCellContextMenu={(cell, e) => {
+                                            e.preventDefault();
+                                            editor.contextTarget(cell);
+                                            setMenu({ x: e.clientX, y: e.clientY, target: 'cell' });
+                                        }}
+                                        showHandles
+                                        onSelectRow={(rowIndex, e) => editor.selectRow(rowIndex, e.shiftKey)}
+                                        onSelectColumn={(colIndex, e) => editor.selectColumn(colIndex, e.shiftKey)}
+                                        onSelectAll={editor.selectAll}
+                                        onHandleContextMenu={({ kind, index }, e) => {
+                                            e.preventDefault();
+                                            // Keep an existing whole-row/column selection if the
+                                            // handle is inside it, so the menu acts on all of it.
+                                            if (kind === 'row') {
+                                                const covered = editor.range && editor.range.left === 0
+                                                    && editor.range.right === editor.gridCols - 1
+                                                    && index >= editor.range.top && index <= editor.range.bottom;
+                                                if (!covered) editor.selectRow(index);
+                                            } else {
+                                                const covered = editor.range && editor.range.top === 0
+                                                    && editor.range.bottom === editor.gridRows - 1
+                                                    && index >= editor.range.left && index <= editor.range.right;
+                                                if (!covered) editor.selectColumn(index);
+                                            }
+                                            setMenu({ x: e.clientX, y: e.clientY, target: kind });
+                                        }}
+                                    />
+                                </div>
                             </OutputCard>
                         ) : savedCsv ? (
                             /* Fallback: plain table for extractions without provenance data */
@@ -768,7 +793,7 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
                 {activePage && (
                     <div className="pointer-events-none absolute inset-x-0 bottom-4 z-20 flex flex-wrap justify-center gap-2 px-4">
                         {((outputView === 'raw' && hasWords) || (!isExtracting && hasTable)) && (
-                            <div className="pointer-events-auto flex flex-wrap items-center justify-center gap-2 rounded-2xl border border-outline-variant bg-surface/95 px-3 py-2 shadow-lg backdrop-blur-sm">
+                            <div data-table-actions className="pointer-events-auto flex flex-wrap items-center justify-center gap-2 rounded-2xl border border-outline-variant bg-surface/95 px-3 py-2 shadow-lg backdrop-blur-sm">
                                 {outputView === 'raw' && (
                                     // Once a table exists, the raw view only navigates to it; the
                                     // (re-)generate action lives solely in the table view.

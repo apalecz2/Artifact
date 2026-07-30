@@ -239,6 +239,14 @@ function SessionContent(): React.ReactElement {
         if (box && autoZoom) viewerRef.current?.zoomToBox(box);
     };
 
+    // Drop the table selection (and with it the source highlight it drives).
+    // Clearing the anchor here is what clears the editor's range too — the
+    // editor follows this selection and collapses to nothing when it goes away.
+    const clearCellSelection = () => {
+        setSelectedCell(null);
+        setProvenanceHighlightBox(null);
+    };
+
     // Apply an updated cell grid: refresh both pieces of table state (the CSV is
     // re-derived from the cells so copy/export always reflect edits) and persist
     // them over the existing csv_outputs row. Called only while a table exists,
@@ -353,6 +361,7 @@ function SessionContent(): React.ReactElement {
                 provenanceCells={provenanceCells}
                 selectedCell={selectedCell}
                 handleCellClick={handleCellClick}
+                clearCellSelection={clearCellSelection}
                 onApplyGrid={applyCellUpdate}
                 tableKey={`${id ?? 'none'}:${activePageIndex}`}
                 savedCsv={savedCsv}

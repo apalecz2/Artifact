@@ -12,8 +12,12 @@ import TitleBar from '../components/TitleBar';
  *
  * The router lives here rather than in `App.tsx` because the title bar's
  * back/forward buttons need `useLocation`/`useNavigate`. The pre-router screens
- * (EULA gate, setup wizard) render inside it harmlessly — they simply never
- * navigate, which is also why the buttons sit disabled there.
+ * (EULA gate, setup wizard) render inside it but withhold the routes, so the bar's
+ * history navigation means nothing while one is up: `App` says so through
+ * `lib/navState.ts`, and a takeover that can be left (a re-run of setup) registers
+ * what Back should do instead. Being inside the router is not enough on its own —
+ * a re-run arrives with the session's history intact, so the buttons would
+ * otherwise look live and move it behind a screen that never changes.
  *
  * Keeping the bar on top takes two things, because the app's overlays escape in
  * two different ways:

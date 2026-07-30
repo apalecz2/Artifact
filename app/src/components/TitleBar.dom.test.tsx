@@ -1,9 +1,10 @@
 ﻿import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { act, render as rtlRender, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render as rtlRender, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { EDIT_COMMANDS, resetEditTarget, setEditTarget } from '../lib/editTarget';
 import type { EditAvailability, EditCommand } from '../lib/editTarget';
+import { setBackHandler, setRoutesMounted } from '../lib/navState';
 
 const invoke = vi.fn();
 vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(...args) }));
@@ -149,6 +150,10 @@ describe('<TitleBar />', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         invoke.mockImplementation(async (cmd: string) => (cmd === 'get_app_zoom' ? 1 : 1.1));
+        // The bar refuses to navigate until the app declares its routes are on
+        // screen, which is the normal case; the wizard's is covered on its own below.
+        setRoutesMounted(true);
+        setBackHandler(null);
     });
 
     it('steps the zoom from the View menu and shows the new level', async () => {
@@ -389,6 +394,138 @@ describe('<TitleBar />', () => {
     // The full disabled/enabled matrix is covered by the `historyPosition` unit
     // tests above — jsdom shares one history across a file, so `history.length`
     // can't be pinned here.
+
+    // Re-running setup reloads the webview, which keeps the session's entries and
+    // the `idx` React Router wrote into `history.state` — so the history says Back
+    // is live while the wizard is what's on screen. Navigating then moves the entry
+    // behind a screen that never changes.
+    describe('while the app is not showing its routes', () => {
+        beforeEach(() => {
+            // A position that would otherwise offer Back.
+            window.history.pushState({ idx: 1 }, '');
+            setRoutesMounted(false);
+        });
+
+        it('disables both navigation buttons when the screen offers no way out', async () => {
+            render();
+
+            await waitFor(() => {
+                expect(screen.getByRole('button', { name: 'Back' })).toBeDisabled();
+            });
+            expect(screen.getByRole('button', { name: 'Forward' })).toBeDisabled();
+        });
+
+        it('ignores the history accelerators', async () => {
+            const user = userEvent.setup();
+            render();
+
+            await user.keyboard('{Alt>}[ArrowLeft]{/Alt}');
+            await user.keyboard('{Alt>}[ArrowRight]{/Alt}');
+
+            expect(navigate).not.toHaveBeenCalled();
+        });
+
+        it('greys out the File items that route, leaving Exit alive', async () => {
+            const user = userEvent.setup();
+            render();
+
+            await user.click(screen.getByRole('button', { name: /file/i }));
+            expect(screen.getByRole('menuitem', { name: /new extraction/i })).toBeDisabled();
+            expect(screen.getByRole('menuitem', { name: /open extraction/i })).toBeDisabled();
+            expect(screen.getByRole('menuitem', { name: /^settings/i })).toBeDisabled();
+            expect(screen.getByRole('menuitem', { name: /about anchor/i })).toBeDisabled();
+            expect(screen.getByRole('menuitem', { name: /^exit/i })).toBeEnabled();
+        });
+
+        it('keeps the Edit commands, disabling only the one that routes', async () => {
+            const user = userEvent.setup();
+            render();
+
+            await user.click(screen.getByRole('button', { name: /edit/i }));
+
+            // The six act on the focused field, which the wizard has plenty of.
+            expect(screen.getByRole('menuitem', { name: /^select all/i })).toBeEnabled();
+            expect(screen.getByRole('menuitem', { name: /^paste/i })).toBeEnabled();
+            expect(screen.getByRole('menuitem', { name: /find extractions/i })).toBeDisabled();
+        });
+
+        it('still zooms from the View menu', async () => {
+            const user = userEvent.setup();
+            render();
+
+            await user.click(screen.getByRole('button', { name: /view/i }));
+            await user.click(screen.getByRole('menuitem', { name: /zoom in/i }));
+
+            expect(invoke).toHaveBeenCalledWith('set_app_zoom', { action: 'in' });
+        });
+
+        // The wizard ends in a reload, but the EULA-only run doesn't: it hands the
+        // app back in place, so the bar has to come alive without remounting.
+        it('comes back to life when the routes mount', async () => {
+            const user = userEvent.setup();
+            render();
+
+            const back = screen.getByRole('button', { name: 'Back' });
+            expect(back).toBeDisabled();
+
+            act(() => setRoutesMounted(true));
+
+            await waitFor(() => expect(back).toBeEnabled());
+            await user.click(back);
+            expect(navigate).toHaveBeenCalledWith(-1);
+        });
+
+        // What a user pressing Back on the wizard is actually asking for: give me
+        // the app back. The wizard registers that when it is a re-run over an
+        // install that already works, so there is an app to go back to.
+        describe('and the screen registers a way out', () => {
+            const exit = vi.fn();
+
+            beforeEach(() => setBackHandler(exit));
+
+            it('offers Back, and leaves the screen instead of moving the history', async () => {
+                const user = userEvent.setup();
+                render();
+
+                const back = screen.getByRole('button', { name: 'Back' });
+                await waitFor(() => expect(back).toBeEnabled());
+
+                await user.click(back);
+                expect(exit).toHaveBeenCalledOnce();
+                expect(navigate).not.toHaveBeenCalled();
+            });
+
+            it('runs it from the accelerator too', async () => {
+                const user = userEvent.setup();
+                render();
+
+                await user.keyboard('{Alt>}[ArrowLeft]{/Alt}');
+
+                expect(exit).toHaveBeenCalledOnce();
+            });
+
+            it('still offers no Forward — there is nothing ahead of a takeover', () => {
+                render();
+                expect(screen.getByRole('button', { name: 'Forward' })).toBeDisabled();
+
+                fireEvent.keyDown(window, { code: 'ArrowRight', altKey: true });
+                expect(exit).not.toHaveBeenCalled();
+            });
+
+            // The install step withdraws it: a download in flight has to be stopped
+            // and confirmed, which that step owns.
+            it('takes the offer back when the screen withdraws it', async () => {
+                render();
+
+                const back = screen.getByRole('button', { name: 'Back' });
+                await waitFor(() => expect(back).toBeEnabled());
+
+                act(() => setBackHandler(null));
+
+                await waitFor(() => expect(back).toBeDisabled());
+            });
+        });
+    });
 
     it('draws no menus on macOS, where the system menu bar owns them', () => {
         // `userAgent` is a prototype getter, so there is no own descriptor to put

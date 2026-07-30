@@ -18,6 +18,21 @@ export function resolveTheme(): Theme {
     return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
 
+/** Apply the resolved theme to the DOM once, before React renders.
+ *
+ *  Necessary because `useTheme` only mounts inside the router (AppLayout, Settings):
+ *  the screens that render *instead* of the routes — the setup wizard, an
+ *  EULA-re-consent run, the startup spinner — and the title bar above them had no
+ *  subscriber, so a user who had chosen dark was sent back through setup in light.
+ *  (A full "remove all data" reset clears localStorage along with everything else, so
+ *  that path is a genuine first run and correctly falls back to the OS preference.)
+ *
+ *  Doing it here also removes the light flash on a normal launch, where the class
+ *  previously landed in an effect after the first paint. */
+export function applyStoredTheme(): void {
+    document.documentElement.classList.toggle('dark', resolveTheme() === 'dark');
+}
+
 // Single writer for theme: persist, apply to the DOM, then notify every useTheme
 // subscriber so independent toggles stay in sync.
 export function setTheme(theme: Theme): void {

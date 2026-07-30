@@ -7,6 +7,8 @@ import Icon from './Icon';
 import TitleBarMenu, { type MenuEntry, type MenuLeaf } from './TitleBarMenu';
 import { getEditTarget, runInEditTarget, subscribeEditTarget } from '../lib/editTarget';
 import type { EditCommand } from '../lib/editTarget';
+import { getNavState, runBackHandler, subscribeNavState } from '../lib/navState';
+import type { NavState } from '../lib/navState';
 import { readClipboardText } from '../utils/clipboard';
 // The bundled app icon, straight from the source Tauri ships to the OS, so the
 // bar and the taskbar/dock can never show different marks. Vite hashes and emits
@@ -223,6 +225,10 @@ export async function runEditMenuCommand(command: EditCommand): Promise<void> {
     await runEditCommand(command);
 }
 
+/** Server/first-paint snapshot of the nav state: nothing is navigable. A module
+ *  constant because `useSyncExternalStore` compares snapshots by identity. */
+const INERT_NAV: NavState = { routed: false, canExit: false };
+
 /** What the back/forward buttons should offer right now. */
 export interface HistoryPosition {
     canGoBack: boolean;
@@ -276,6 +282,14 @@ export default function TitleBar() {
     // so the bar isn't re-rendered by every cell click in the session's table.
     const editTarget = useSyncExternalStore(subscribeEditTarget, getEditTarget, () => null);
 
+    // Whether the app is showing its routes at all, and — when it isn't — whether
+    // the screen standing in for them can be backed out of. The setup wizard, the
+    // startup check and the error fallback all render instead of the routes, and a
+    // re-run of setup reaches the wizard with the session's history (and React
+    // Router's `idx`) intact, so the history alone would report a Back that moved
+    // nothing visible. See lib/navState.ts.
+    const nav = useSyncExternalStore(subscribeNavState, getNavState, () => INERT_NAV);
+
     const applyZoom = useCallback(async (action: ZoomAction) => {
         try {
             setZoom(await invoke<number>('set_app_zoom', { action }));
@@ -284,11 +298,21 @@ export default function TitleBar() {
         }
     }, []);
 
+    // Both navigators are gated here rather than at each call site, so the buttons,
+    // the accelerators, the in-window menus and macOS's native menu bar are covered
+    // by one check — the native items are the reason the guard can't live only in
+    // the `disabled` props, since Rust builds those and can't read this state.
     const go = useCallback(
         (move: HistoryMove) => {
+            // Over a takeover, Back means "leave this and give me the app back",
+            // which is what the wizard registers. Forward has no counterpart.
+            if (!nav.routed) {
+                if (move === 'back') runBackHandler();
+                return;
+            }
             navigate(move === 'back' ? -1 : 1);
         },
-        [navigate],
+        [nav.routed, navigate],
     );
 
     // Re-read the history position on every navigation. Keying off `location`
@@ -312,9 +336,10 @@ export default function TitleBar() {
 
     const runCommand = useCallback(
         (command: AppCommand) => {
+            if (!nav.routed) return;
             navigate(APP_COMMAND_ROUTE[command]);
         },
-        [navigate],
+        [nav.routed, navigate],
     );
 
     useEffect(() => {
@@ -431,16 +456,25 @@ export default function TitleBar() {
         }
     };
 
+    // Over a takeover the history is irrelevant — Back offers the way out the
+    // screen registered, and there is no forward at all.
+    const canGoBack = nav.routed ? history.canGoBack : nav.canExit;
+    const canGoForward = nav.routed && history.canGoForward;
+
     const modifier = modifierLabel(isMac);
     const navButton =
         'flex h-7 w-7 items-center justify-center rounded-md text-on-surface-variant transition-colors hover:bg-titlebar-hover disabled:pointer-events-none disabled:opacity-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20';
 
+    // Everything here but Exit routes, so the whole list greys out while the app is
+    // showing something other than its routes (the setup wizard, most visibly) —
+    // rather than standing enabled and doing nothing. Closing the window is the one
+    // thing that still works from there, which is exactly when a user might want it.
     const fileEntries: MenuLeaf[] = [
-        { label: 'New Extraction', hint: `${modifier} N`, onSelect: () => runCommand('new') },
-        { label: 'Open Extraction…', hint: `${modifier} O`, onSelect: () => runCommand('open') },
+        { label: 'New Extraction', hint: `${modifier} N`, disabled: !nav.routed, onSelect: () => runCommand('new') },
+        { label: 'Open Extraction…', hint: `${modifier} O`, disabled: !nav.routed, onSelect: () => runCommand('open') },
         'separator',
-        { label: 'Settings', hint: `${modifier} ,`, onSelect: () => runCommand('settings') },
-        { label: 'About Anchor', onSelect: () => navigate('/about') },
+        { label: 'Settings', hint: `${modifier} ,`, disabled: !nav.routed, onSelect: () => runCommand('settings') },
+        { label: 'About Anchor', disabled: !nav.routed, onSelect: () => navigate('/about') },
         'separator',
         {
             label: isMac ? 'Quit Anchor' : 'Exit',
@@ -469,7 +503,14 @@ export default function TitleBar() {
         'separator',
         ...EDIT_ITEMS.slice(2).map(editItemRow),
         'separator',
-        { label: 'Find Extractions…', hint: `${modifier} F`, onSelect: () => runCommand('find') },
+        // Routes, unlike the six above it, so it follows the File items' rule rather
+        // than the focused field's.
+        {
+            label: 'Find Extractions…',
+            hint: `${modifier} F`,
+            disabled: !nav.routed,
+            onSelect: () => runCommand('find'),
+        },
     ];
 
     const viewEntries: MenuLeaf[] = ZOOM_ITEMS.map((item) => ({
@@ -533,7 +574,7 @@ export default function TitleBar() {
                         type="button"
                         aria-label="Back"
                         title={isMac ? 'Back (⌘[)' : 'Back (Alt+←)'}
-                        disabled={!history.canGoBack}
+                        disabled={!canGoBack}
                         onClick={() => go('back')}
                         className={navButton}
                     >
@@ -543,7 +584,7 @@ export default function TitleBar() {
                         type="button"
                         aria-label="Forward"
                         title={isMac ? 'Forward (⌘])' : 'Forward (Alt+→)'}
-                        disabled={!history.canGoForward}
+                        disabled={!canGoForward}
                         onClick={() => go('forward')}
                         className={navButton}
                     >

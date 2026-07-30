@@ -20,10 +20,52 @@ beforeEach(() => {
 describe('useSetupCheck', () => {
     it('treats the force_setup flag as incomplete regardless of assets', async () => {
         localStorage.setItem(FORCE_SETUP_KEY, '1');
+        localStorage.setItem('model_path', '/m.gguf');
+        localStorage.setItem('hardware_backend', 'cuda');
+        invoke.mockResolvedValueOnce(true); // check_setup_complete
         const { result } = renderHook(() => useSetupCheck());
         await waitFor(() => expect(result.current.isLoading).toBe(false));
         expect(result.current.isComplete).toBe(false);
-        expect(invoke).not.toHaveBeenCalledWith('check_setup_complete');
+    });
+
+    // The probe is *not* skipped when the flag is set, even though the flag alone
+    // decides whether the wizard shows: it is the only thing that distinguishes a
+    // re-run the user chose (walkable-away-from) from a broken install (not).
+    it('marks a forced run over a working install as cancellable', async () => {
+        localStorage.setItem(FORCE_SETUP_KEY, '1');
+        localStorage.setItem('model_path', '/m.gguf');
+        localStorage.setItem('hardware_backend', 'cuda');
+        invoke.mockResolvedValueOnce(true); // check_setup_complete
+        const { result } = renderHook(() => useSetupCheck());
+
+        await waitFor(() => expect(result.current.isLoading).toBe(false));
+        expect(invoke).toHaveBeenCalledWith('check_setup_complete');
+        expect(result.current.canCancelRerun).toBe(true);
+    });
+
+    it('does not offer to cancel when the assets are genuinely missing', async () => {
+        localStorage.setItem(FORCE_SETUP_KEY, '1');
+        invoke.mockResolvedValueOnce(false); // check_setup_complete
+        const { result } = renderHook(() => useSetupCheck());
+
+        await waitFor(() => expect(result.current.isLoading).toBe(false));
+        expect(result.current.isComplete).toBe(false);
+        expect(result.current.canCancelRerun).toBe(false);
+    });
+
+    it('cancelRerun clears the flag and hands the app back without a reload', async () => {
+        localStorage.setItem(FORCE_SETUP_KEY, '1');
+        localStorage.setItem('model_path', '/m.gguf');
+        localStorage.setItem('hardware_backend', 'cuda');
+        invoke.mockResolvedValueOnce(true);
+        const { result } = renderHook(() => useSetupCheck());
+        await waitFor(() => expect(result.current.canCancelRerun).toBe(true));
+
+        act(() => result.current.cancelRerun());
+
+        expect(localStorage.getItem(FORCE_SETUP_KEY)).toBeNull();
+        expect(result.current.isComplete).toBe(true);
+        expect(result.current.canCancelRerun).toBe(false);
     });
 
     it('reports complete when check_setup_complete is true and paths already exist', async () => {

@@ -6,10 +6,7 @@
 
 - Screenshots don't show up well against the same theme -- dark screenshot against dark mode bg + vice versa
   - Could add drop shadow, or outline?
-- Install steps ui need to scale to smaller device sizes better
-  - Entire app should scale better on small screens
 - toolbars should minimize tools to just icons when the width of that side is small
-- dark mode in the installation view (for reinstallation)
 - option to collapse pannels in session
 - note on poor quality extractions -- "try fixing the OCR on the left for better results"
 
@@ -261,6 +258,40 @@ Added excel export support
      Only `allow-read-text` is granted. Writes were never affected — `navigator.clipboard
      .write` is granted outright for a focused document acting on a user gesture — so the
      copy path keeps the web API, which is what lets it offer HTML alongside plain text.
+
+3. **The setup wizard came up in light mode, and its back/forward buttons were dead** — both
+   because the wizard renders *instead of* the routes, so nothing the routed app sets up on
+   the way in applies to it. Only visible on a **re-run** (Settings ▸ *Re-run setup*, or a
+   re-consent run after an `EULA_VERSION` bump); a genuine first install has neither a
+   theme preference nor any history, so both defects looked like correct behaviour.
+   - *Theme*: the `dark` class on `<html>` was written only by `useTheme`, whose two
+     subscribers (`AppLayout`, `Settings`) are inside the router — so a user who had chosen
+     dark was sent back through setup in light. **Resolved** by applying it once in
+     `main.tsx` before `createRoot` (`applyStoredTheme`), which also removes the light flash
+     on a normal launch, where the class previously landed in an effect after first paint.
+     A full *Remove all data* reset is unaffected and still correct: it clears localStorage
+     along with everything else, so that run really is a first run.
+   - *Navigation*: a reload keeps the session's entries **and** the `idx` React Router wrote
+     into `history.state`, so `historyPosition` reported Back as live. Pressing it moved the
+     history behind a screen that never changed, and left the hash pointing somewhere the
+     user hadn't been — which is where the wizard's own closing reload then landed them.
+     **Resolved** with `lib/navState.ts`, which carries two facts: `App` declares whether
+     the routes are on screen (false for the wizard, the startup check, and an
+     unmounted-by-`ErrorBoundary` tree), which disables Forward and the routing menu items;
+     and a takeover that can be left registers a **back handler** saying what Back means
+     instead. The wizard registers one when the run is escapable, so Back does what the user
+     pressing it actually wants — hands the app back — rather than being merely inert, and
+     shows a *Back to Anchor* button off the same condition so the only way out isn't an
+     arrow in the title bar.
+     Escapable means `check_setup_complete` passed *and* the flag is what put us here, which
+     is why `useSetupCheck` no longer short-circuits on the flag: the probe is the only thing
+     separating a re-run the user chose from an install that is genuinely broken (and from a
+     consent run, which `App` excludes since an unaccepted EULA gates the app rather than
+     being a screen to dismiss). The install step withdraws the handler — a download in
+     flight has to be stopped and confirmed, which its own *Cancel setup* does. Both checks
+     sit inside `go`/`runCommand` rather than only in the `disabled` props, so the
+     accelerators and macOS's native menu items — built in Rust, unable to read frontend
+     state — are covered too.
 
 ### Provenance / Matching
 

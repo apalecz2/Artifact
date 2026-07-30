@@ -12,6 +12,13 @@ import "material-symbols/outlined.css";
 import App from "./App";
 import AppShell from "./layouts/AppShell";
 import ErrorBoundary from "./components/ErrorBoundary";
+import { applyStoredTheme } from "./hooks/useTheme";
+
+// Theme has to be on <html> before the first render, because the components that
+// subscribe to it (AppLayout, Settings) live inside the router — without this the
+// title bar and every pre-router screen, the setup wizard included, drew in light
+// mode regardless of the stored preference.
+applyStoredTheme();
 
 // The title bar sits *outside* the error boundary on purpose: the window has no
 // OS frame, so if the app tree crashes the bar is the only thing left that can

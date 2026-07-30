@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Routes, Route } from 'react-router';
 import "./App.css";
 import Icon from './components/Icon';
@@ -11,6 +12,7 @@ import Legal from './pages/Legal';
 import SetupWizard from './features/setup/SetupWizard';
 import { useSetupCheck, clearSetupRerun } from './features/setup/useSetupCheck';
 import { useEulaAcceptance } from './features/legal/eulaAcceptance';
+import { setRoutesMounted } from './lib/navState';
 
 // The `HashRouter` itself lives in `AppShell`, one level up, so the title bar's
 // back/forward buttons are inside it too.
@@ -36,7 +38,19 @@ export default function App() {
     // is re-asked only if the user has never accepted the current EULA version, in
     // which case the wizard may consist of that step alone (see eulaAcceptance.ts).
     const { accepted, accept } = useEulaAcceptance();
-    const { isComplete, isLoading } = useSetupCheck();
+    const { isComplete, isLoading, canCancelRerun, cancelRerun } = useSetupCheck();
+
+    // The spinner and the wizard below render *instead of* the router, so while
+    // either is up there is nowhere for the title bar's back/forward buttons and
+    // File items to go. Tell the bar, which sits above this tree and cannot see
+    // which branch was taken. The cleanup covers the third case: if this subtree
+    // throws, `ErrorBoundary` unmounts it and shows a fallback with no routes
+    // either. See lib/navState.ts.
+    const routesMounted = !isLoading && accepted && isComplete;
+    useEffect(() => {
+        setRoutesMounted(routesMounted);
+        return () => setRoutesMounted(false);
+    }, [routesMounted]);
 
     if (isLoading) {
         return (
@@ -52,6 +66,10 @@ export default function App() {
                 eulaAccepted={accepted}
                 onAcceptEula={accept}
                 installNeeded={!isComplete}
+                // Leaving is offered only for a re-run the user started themselves,
+                // and never while consent is outstanding — an unaccepted EULA is a
+                // gate on the app, not a screen to dismiss.
+                onExit={accepted && canCancelRerun ? cancelRerun : undefined}
                 onComplete={() => { clearSetupRerun(); window.location.reload(); }}
             />
         );
