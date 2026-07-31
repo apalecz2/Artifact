@@ -18,7 +18,7 @@
  */
 import type { MenuItem } from '../../components/ContextMenu';
 import type { TableEditor } from '../../features/extraction/useTableEditor';
-import { formatShortcut } from '../../lib/platform';
+import { formatShortcut, redoShortcut } from '../../lib/platform';
 
 export type MenuTarget = 'cell' | 'row' | 'column' | 'toolbar';
 
@@ -119,13 +119,9 @@ export function buildTableMenu(editor: TableEditor, target: MenuTarget, isMac = 
         },
     ];
 
-    // Redo is the one binding that differs rather than just rendering
-    // differently: off macOS the pane handles Ctrl+Y (and Ctrl+Shift+Z), but on
-    // macOS the only accelerator is the menu bar's ⌘⇧Z — nothing handles ⌘Y, so
-    // advertising it there would name a dead key.
     const history: MenuItem[] = [
         { label: 'Undo', icon: 'undo', shortcut: key('Ctrl+Z'), disabled: !editor.canUndo, onSelect: editor.undo },
-        { label: 'Redo', icon: 'redo', shortcut: key(isMac ? 'Ctrl+Shift+Z' : 'Ctrl+Y'), disabled: !editor.canRedo, onSelect: editor.redo },
+        { label: 'Redo', icon: 'redo', shortcut: redoShortcut(isMac), disabled: !editor.canRedo, onSelect: editor.redo },
     ];
 
     const tidy: MenuItem[] = [

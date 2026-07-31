@@ -72,3 +72,16 @@ export function formatShortcut(hint: string, isMac: boolean): string {
         .replace(/Shift\+/g, '⇧')
         .replace(/Alt\+/g, '⌥');
 }
+
+/**
+ * Redo's hint, which is the one binding that *differs* between platforms rather
+ * than just rendering differently: off macOS the table pane handles `Ctrl+Y`
+ * (and `Ctrl+Shift+Z`), but on macOS the only accelerator is the system menu
+ * bar's `⌘⇧Z` — nothing handles `⌘Y` there, so naming it points at a dead key.
+ *
+ * It lives here because more than one surface shows it (the table menus and the
+ * floating toolbar's Redo button), and they drifted apart once already.
+ */
+export function redoShortcut(isMac: boolean): string {
+    return formatShortcut(isMac ? 'Ctrl+Shift+Z' : 'Ctrl+Y', isMac);
+}

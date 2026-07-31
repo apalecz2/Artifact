@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isMacPlatform, formatShortcut, flagStepShortcut } from './platform';
+import { isMacPlatform, formatShortcut, flagStepShortcut, redoShortcut } from './platform';
 
 describe('isMacPlatform', () => {
     it('detects macOS user agents', () => {
@@ -9,6 +9,16 @@ describe('isMacPlatform', () => {
     it('rejects other platforms', () => {
         expect(isMacPlatform('Mozilla/5.0 (Windows NT 10.0; Win64; x64)')).toBe(false);
         expect(isMacPlatform('Mozilla/5.0 (X11; Linux x86_64)')).toBe(false);
+    });
+});
+
+describe('redoShortcut', () => {
+    it('names Ctrl+Y off macOS', () => {
+        expect(redoShortcut(false)).toBe('Ctrl+Y');
+    });
+
+    it('names ⌘⇧Z on macOS, never ⌘Y — nothing handles that there', () => {
+        expect(redoShortcut(true)).toBe('⌘⇧Z');
     });
 });
 

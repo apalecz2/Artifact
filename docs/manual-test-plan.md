@@ -75,6 +75,8 @@ is not the test.
 | 11 | Review-nav chevron tooltips (either side of the "N cells to review" count) | `⌥←` / `⌥→` | ☐ |
 | 12 | Help panel's *Review flagged cells* item names the same key as those tooltips | `⌥←/→` | ☐ |
 | 13 | Help panel prose uses the same symbols as the menus throughout | `⌘`, not `Ctrl` | ☐ |
+| 13a | **Floating toolbar** — hover the Undo and Redo buttons | `Undo (⌘Z)` and `Redo (⌘⇧Z)`. These were hardcoded to `Ctrl+Z`/`Ctrl+Y` until 2026-07-31 and were missed by the Windows hint pass, which only looked at the menus | ☐ |
+| 13b | Help panel reads as sentences — no shortcut run into the word after it (`⌘C copies`, not `⌘Ccopies`) | A JSX whitespace trap, fixed 2026-07-31; every hint in that file is one line break from re-breaking | ☐ |
 
 ---
 
@@ -185,6 +187,11 @@ and the help text needs no change since it doesn't claim otherwise.
 `Ctrl+V`; Undo `Ctrl+Z`; Redo `Ctrl+Y`; Clear contents `Delete`; Edit value
 `Enter`; Mark as checked `Space`. The review-nav chevron tooltips and the help
 panel name the same keys as the menus.
+
+*This pass looked at the menus only, so it missed two things a macOS run later
+found: the floating toolbar's Undo/Redo tooltips were hardcoded `Ctrl+…`, and the
+help panel ran a shortcut into the following word. Both fixed 2026-07-31; §1 #13a
+and #13b re-test them.*
 
 **Table editor visuals.** Handles render sanely and click-select their row or
 column. The selection ring is legible over every trust tint, in light and dark.

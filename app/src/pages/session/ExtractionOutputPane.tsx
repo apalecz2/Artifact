@@ -15,7 +15,7 @@ import type { DocumentPageResult, ProvenanceCell } from '../../features/extracti
 import type { LineWord } from '../../features/extraction/types';
 import { useTableEditor } from '../../features/extraction/useTableEditor';
 import { setEditTarget } from '../../lib/editTarget';
-import { flagStepShortcut, isMacPlatform } from '../../lib/platform';
+import { flagStepShortcut, formatShortcut, isMacPlatform, redoShortcut } from '../../lib/platform';
 import { buildTableMenu } from './tableCommands';
 import type { MenuTarget } from './tableCommands';
 import { iconBtnClass, viewToggleLabelClass, outputToolbarLabelClass, outputToolbarProseClass, outputToolbarCountClass } from './sessionToolbar';
@@ -932,7 +932,7 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
                                             <div className="flex shrink-0 items-center gap-1 pr-2 mr-1 border-r border-outline-variant">
                                                 <button
                                                     aria-label="Undo"
-                                                    title="Undo (Ctrl+Z)"
+                                                    title={`Undo (${formatShortcut('Ctrl+Z', isMac)})`}
                                                     onClick={editor.undo}
                                                     disabled={!editor.canUndo}
                                                     className={iconBtnClass}
@@ -942,7 +942,7 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
                                                 </button>
                                                 <button
                                                     aria-label="Redo"
-                                                    title="Redo (Ctrl+Y)"
+                                                    title={`Redo (${redoShortcut(isMac)})`}
                                                     onClick={editor.redo}
                                                     disabled={!editor.canRedo}
                                                     className={iconBtnClass}

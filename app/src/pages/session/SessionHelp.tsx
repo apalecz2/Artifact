@@ -87,9 +87,9 @@ export function OutputHelp({ isMac = false }: { isMac?: boolean }): React.ReactE
                 Drag across cells, or hold Shift while clicking or pressing an arrow key,
                 to select a block. Click a row number or column letter to take the whole
                 row or column; {key('Ctrl+A')} takes the table. Space then marks every
-                selected cell as checked at once, Delete clears them, and {key('Ctrl+C')}
-                copies the block ({key('Ctrl+V')} pastes one back in, from here or from a
-                spreadsheet).
+                selected cell as checked at once, Delete clears them,
+                and {key('Ctrl+C')} copies the block ({key('Ctrl+V')} pastes one back
+                in, from here or from a spreadsheet).
             </HelpItem>
             <HelpItem icon="grid_on" title="Fix the table's shape">
                 Right-click any cell — or a row number or column letter — for the table

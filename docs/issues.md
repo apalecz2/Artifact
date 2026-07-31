@@ -15,7 +15,9 @@ verified and on which platform.
   found three defects, all fixed and written up under Resolved: the menu/help hints
   hardcoded `Ctrl` on macOS, Redo advertised a `⌘Y` that nothing handles there, and
   `Alt+←` both stepped the review worklist and navigated back a page. `F2` is now
-  documented; `Shift+Tab` (saves, stays on the cell) was accepted as-is.
+  documented; `Shift+Tab` (saves, stays on the cell) was accepted as-is. A first look on
+  macOS then found two the Windows pass structurally couldn't (also fixed, see Resolved) —
+  re-test with plan §1 #13a/#13b.
 - The **table editor's visuals** passed on Windows and have never been seen on macOS —
   both themes: plan §3.
 - Confirm **Paste raises no clipboard permission prompt** on macOS — the Windows-side fix
@@ -288,6 +290,19 @@ Added excel export support
    - **Lesson:** the app has three `window`-level keydown handlers (title bar, table pane,
      dialogs). None of them stop propagation, so a chord bound in one is *not* taken —
      check the others before adding an accelerator.
+   - **Two stragglers found on macOS afterwards**, both invisible to a Windows pass:
+     - The floating toolbar's Undo/Redo button tooltips were still hardcoded
+       `Ctrl+Z`/`Ctrl+Y` — correct-looking on Windows, doubly wrong on macOS (`Ctrl` for
+       `⌘`, and a `⌘Y` nothing handles). The earlier sweep fixed the *menus* and the help
+       text and stopped there. Redo's hint is now one function, `redoShortcut` in
+       `lib/platform.ts`, shared by the menus and the toolbar — it had diverged once, so
+       the second copy was removed rather than corrected.
+     - The help panel rendered `⌘Ccopies the block`, no space. Not a platform bug at all:
+       JSX drops whitespace between an expression and text on the *next* line, so
+       `{key('Ctrl+C')}\ncopies` concatenates. It read as a macOS defect only because that
+       is where someone was looking at the symbol. Covered now by
+       `SessionHelp.dom.test.tsx`, which asserts the rendered prose on both platforms —
+       every hint in that file is one line-break away from the same trap.
 
 4. **A table command menu stayed open over a cleared selection, every row greyed out.**
    With the right-click menu (or toolbar ▸ *Edit table*) open, clicking off the table to
