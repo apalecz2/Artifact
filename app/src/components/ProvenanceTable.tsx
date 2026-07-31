@@ -1,6 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { ProvenanceCell, TrustLevel } from '../features/extraction/types';
 import type { CellRange } from '../features/extraction/tableEdits';
+import { autoScrollDelta, clampIntoBounds, findScrollParent } from './dragScroll';
 
 export type SelectedCell = { rowIndex: number; colIndex: number } | null;
 
@@ -21,6 +22,92 @@ export function columnLabel(index: number): string {
         label = String.fromCharCode(65 + (i % 26)) + label;
     }
     return label;
+}
+
+/**
+ * Scrolls the table's viewport while a drag-selection is held at or past its
+ * edge, extending the selection as cells come into view. Returns the starter to
+ * call on a cell's mousedown; the drag ends on the next mouseup anywhere.
+ *
+ * The loop only acts when it actually scrolls something. A drag inside the
+ * viewport is left entirely to the cells' own `mouseenter`, so the common case
+ * costs one idle animation frame and no re-renders.
+ */
+function useDragAutoScroll(
+    viewportRef: React.RefObject<HTMLElement | null>,
+    onPointAt: (point: { x: number; y: number }) => void,
+) {
+    const pointer = useRef({ x: 0, y: 0 });
+    const frame = useRef<number | null>(null);
+    // Resolved once per drag: walking up for a scroll parent on every frame
+    // would mean a `getComputedStyle` per ancestor at 60fps.
+    const scrollers = useRef<{ x: HTMLElement | null; y: HTMLElement | null }>({ x: null, y: null });
+
+    const stop = useCallback(() => {
+        if (frame.current !== null) cancelAnimationFrame(frame.current);
+        frame.current = null;
+    }, []);
+
+    // Cancel on unmount — an in-flight frame would touch a detached node.
+    useEffect(() => stop, [stop]);
+
+    const startDrag = useCallback((event: React.MouseEvent) => {
+        const viewport = viewportRef.current;
+        if (!viewport) return;
+        pointer.current = { x: event.clientX, y: event.clientY };
+        scrollers.current = {
+            x: findScrollParent(viewport, 'x'),
+            y: findScrollParent(viewport, 'y'),
+        };
+        if (!scrollers.current.x && !scrollers.current.y) return;
+
+        const onMove = (e: MouseEvent) => {
+            pointer.current = { x: e.clientX, y: e.clientY };
+        };
+        const onUp = () => {
+            stop();
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+        };
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+
+        const step = () => {
+            const { x: xEl, y: yEl } = scrollers.current;
+            let scrolled = false;
+            // Each axis measures its own scroller: they are different elements
+            // (the table wrapper scrolls sideways, a pane wrapper vertically)
+            // and so have different bounds.
+            if (xEl) {
+                const { dx } = autoScrollDelta(pointer.current, xEl.getBoundingClientRect());
+                if (dx) {
+                    const before = xEl.scrollLeft;
+                    xEl.scrollLeft += dx;
+                    scrolled ||= xEl.scrollLeft !== before;
+                }
+            }
+            if (yEl) {
+                const { dy } = autoScrollDelta(pointer.current, yEl.getBoundingClientRect());
+                if (dy) {
+                    const before = yEl.scrollTop;
+                    yEl.scrollTop += dy;
+                    scrolled ||= yEl.scrollTop !== before;
+                }
+            }
+            // Only when the view actually moved: at either end of the scroll
+            // range the delta is non-zero but nothing changes, and re-selecting
+            // the same edge cell every frame would churn renders for nothing.
+            if (scrolled) {
+                const bounds = (yEl ?? xEl)!.getBoundingClientRect();
+                onPointAt(clampIntoBounds(pointer.current, bounds));
+            }
+            frame.current = requestAnimationFrame(step);
+        };
+        stop();
+        frame.current = requestAnimationFrame(step);
+    }, [viewportRef, onPointAt, stop]);
+
+    return startDrag;
 }
 
 interface ProvenanceTableProps {
@@ -287,6 +374,28 @@ export default function ProvenanceTable({
         selectedRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     }, [selectedCell?.rowIndex, selectedCell?.colIndex]);
 
+    // Read the current grid and handler through refs: the drag loop is
+    // registered once per drag and would otherwise hold the values from the
+    // render in which the mouse went down.
+    const rowsRef = useRef(rows);
+    rowsRef.current = rows;
+    const onCellPointerEnterRef = useRef(onCellPointerEnter);
+    onCellPointerEnterRef.current = onCellPointerEnter;
+
+    // Extend the selection to the cell at a viewport point. Used only by the
+    // auto-scroll loop: while the pointer is over a cell, that cell's
+    // `onMouseEnter` already does this, and doing it through the DOM as well
+    // would re-select the same cell every frame.
+    const extendToPoint = useCallback((point: { x: number; y: number }) => {
+        const cellEl = document.elementFromPoint(point.x, point.y)?.closest('[data-cell-row]');
+        if (!(cellEl instanceof HTMLElement)) return;
+        const cell = rowsRef.current[Number(cellEl.dataset.cellRow)]?.[Number(cellEl.dataset.cellCol)];
+        if (cell) onCellPointerEnterRef.current?.(cell);
+    }, []);
+
+    const scrollRef = useRef<HTMLDivElement>(null);
+    const startDragScroll = useDragAutoScroll(scrollRef, extendToPoint);
+
     if (rows.length === 0) return null;
 
     const headerRow = rows[0];
@@ -332,16 +441,21 @@ export default function ProvenanceTable({
                 // Right-click opens the menu without moving the anchor.
                 if (e.button !== 0) return;
                 onCellPointerDown(cell, e);
+                startDragScroll(e);
             }
             : undefined,
         onMouseEnter: onCellPointerEnter ? () => onCellPointerEnter(cell) : undefined,
         onContextMenu: onCellContextMenu ? (e: React.MouseEvent) => onCellContextMenu(cell, e) : undefined,
         onDoubleClick: editable ? () => onStartEdit!(cell) : undefined,
         title: cellTooltip(cell),
+        // How the auto-scroll loop finds the cell under the pointer once the
+        // pointer has left the viewport and `mouseenter` has stopped firing.
+        'data-cell-row': cell.rowIndex,
+        'data-cell-col': cell.colIndex,
     });
 
     return (
-        <div className="overflow-x-auto">
+        <div ref={scrollRef} className="overflow-x-auto">
             {/* Dragging paints a cell range, so the browser's own text-selection
                 drag has to be off — otherwise both happen at once. Selecting a
                 value with the mouse happens inside the cell editor instead. */}

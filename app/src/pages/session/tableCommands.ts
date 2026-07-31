@@ -9,9 +9,16 @@
  * Wording targets the non-technical reader the app is built for: "Delete 3
  * rows", not "Delete selection"; the shortcut hints teach the keyboard path
  * without requiring it.
+ *
+ * Those hints are platform-specific and the menus render on both platforms, so
+ * the builder takes `isMac` and runs every hint through `formatShortcut`. A
+ * hardcoded `Ctrl` would be wrong on macOS, where these commands arrive from the
+ * system menu bar as ⌘ (`src-tauri/src/menu.rs`) and the pane's own Ctrl branch
+ * deliberately stands down.
  */
 import type { MenuItem } from '../../components/ContextMenu';
 import type { TableEditor } from '../../features/extraction/useTableEditor';
+import { formatShortcut } from '../../lib/platform';
 
 export type MenuTarget = 'cell' | 'row' | 'column' | 'toolbar';
 
@@ -19,8 +26,9 @@ const plural = (n: number, one: string) => (n === 1 ? one : `${n} ${one}s`);
 
 const separator: MenuItem = { separator: true };
 
-export function buildTableMenu(editor: TableEditor, target: MenuTarget): MenuItem[] {
+export function buildTableMenu(editor: TableEditor, target: MenuTarget, isMac = false): MenuItem[] {
     const { range, selectionCount, commands, verifiedInRange } = editor;
+    const key = (hint: string) => formatShortcut(hint, isMac);
     const rowCount = range ? range.bottom - range.top + 1 : 0;
     const colCount = range ? range.right - range.left + 1 : 0;
     const hasSelection = !!range;
@@ -28,9 +36,9 @@ export function buildTableMenu(editor: TableEditor, target: MenuTarget): MenuIte
     const spansColumns = colCount > 1;
 
     const clipboard: MenuItem[] = [
-        { label: 'Cut', icon: 'content_cut', shortcut: 'Ctrl+X', disabled: !hasSelection, onSelect: () => void editor.cutSelection() },
-        { label: 'Copy', icon: 'content_copy', shortcut: 'Ctrl+C', disabled: !hasSelection, onSelect: () => void editor.copySelection() },
-        { label: 'Paste', icon: 'content_paste', shortcut: 'Ctrl+V', disabled: !hasSelection, onSelect: () => void editor.pasteFromClipboard() },
+        { label: 'Cut', icon: 'content_cut', shortcut: key('Ctrl+X'), disabled: !hasSelection, onSelect: () => void editor.cutSelection() },
+        { label: 'Copy', icon: 'content_copy', shortcut: key('Ctrl+C'), disabled: !hasSelection, onSelect: () => void editor.copySelection() },
+        { label: 'Paste', icon: 'content_paste', shortcut: key('Ctrl+V'), disabled: !hasSelection, onSelect: () => void editor.pasteFromClipboard() },
         { label: 'Clear contents', icon: 'backspace', shortcut: 'Delete', disabled: !hasSelection, onSelect: commands.clear },
     ];
 
@@ -111,9 +119,13 @@ export function buildTableMenu(editor: TableEditor, target: MenuTarget): MenuIte
         },
     ];
 
+    // Redo is the one binding that differs rather than just rendering
+    // differently: off macOS the pane handles Ctrl+Y (and Ctrl+Shift+Z), but on
+    // macOS the only accelerator is the menu bar's ⌘⇧Z — nothing handles ⌘Y, so
+    // advertising it there would name a dead key.
     const history: MenuItem[] = [
-        { label: 'Undo', icon: 'undo', shortcut: 'Ctrl+Z', disabled: !editor.canUndo, onSelect: editor.undo },
-        { label: 'Redo', icon: 'redo', shortcut: 'Ctrl+Y', disabled: !editor.canRedo, onSelect: editor.redo },
+        { label: 'Undo', icon: 'undo', shortcut: key('Ctrl+Z'), disabled: !editor.canUndo, onSelect: editor.undo },
+        { label: 'Redo', icon: 'redo', shortcut: key(isMac ? 'Ctrl+Shift+Z' : 'Ctrl+Y'), disabled: !editor.canRedo, onSelect: editor.redo },
     ];
 
     const tidy: MenuItem[] = [

@@ -15,7 +15,7 @@ import type { DocumentPageResult, ProvenanceCell } from '../../features/extracti
 import type { LineWord } from '../../features/extraction/types';
 import { useTableEditor } from '../../features/extraction/useTableEditor';
 import { setEditTarget } from '../../lib/editTarget';
-import { isMacPlatform } from '../../lib/platform';
+import { flagStepShortcut, isMacPlatform } from '../../lib/platform';
 import { buildTableMenu } from './tableCommands';
 import type { MenuTarget } from './tableCommands';
 import { iconBtnClass, viewToggleLabelClass, outputToolbarLabelClass, outputToolbarProseClass, outputToolbarCountClass } from './sessionToolbar';
@@ -292,6 +292,12 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
             if (outputView !== 'table' || !provenanceCells?.length) return;
             if (tableRef.current?.contains(node) || node.closest?.('[data-table-actions]')) return;
             clearCellSelection();
+            // Every command in the table menus acts on the selection, so one
+            // left open over a cleared one is dead UI — all rows disabled, and
+            // nothing it can do. Closing here rather than relying on the menu's
+            // own outside-click makes the two states move together, and covers
+            // the toolbar menu as well as the right-click one (same state).
+            setMenu(null);
         };
         document.addEventListener('mousedown', onPointerDown, true);
         return () => document.removeEventListener('mousedown', onPointerDown, true);
@@ -388,10 +394,13 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
                 return;
             }
 
-            if (e.altKey) {
-                if (e.key === 'ArrowRight') goToFlag(1);
-                else if (e.key === 'ArrowLeft') goToFlag(-1);
-                else return;
+            // Stepping the review worklist: ⌥←/→ on macOS, F3/Shift+F3
+            // elsewhere. The split is not cosmetic — off macOS Alt+arrows are
+            // the title bar's history nav, and on macOS F3 is a media key. See
+            // `flagStepShortcut`.
+            const step = flagStepShortcut(e, isMac);
+            if (step) {
+                goToFlag(step);
                 e.preventDefault();
                 return;
             }
@@ -401,7 +410,6 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
                 case 'ArrowLeft': editor.moveFocus(0, -1, e.shiftKey); break;
                 case 'ArrowDown': editor.moveFocus(1, 0, e.shiftKey); break;
                 case 'ArrowUp': editor.moveFocus(-1, 0, e.shiftKey); break;
-                case 'F3': goToFlag(e.shiftKey ? -1 : 1); break;
                 case 'Enter':
                 case 'F2':
                     if (onButton || !selectedProvCell) return;
@@ -851,7 +859,7 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
                                                 <div className="flex shrink-0 items-center gap-1 pr-2 mr-1 border-r border-outline-variant">
                                                     <button
                                                         aria-label="Previous cell to review"
-                                                        title="Previous cell to review (Alt+← or Shift+F3)"
+                                                        title={`Previous cell to review (${isMac ? '⌥←' : 'Shift+F3'})`}
                                                         onClick={() => goToFlag(-1)}
                                                         className={iconBtnClass}
                                                         type="button"
@@ -869,7 +877,7 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
                                                     </span>
                                                     <button
                                                         aria-label="Next cell to review"
-                                                        title="Next cell to review (Alt+→ or F3)"
+                                                        title={`Next cell to review (${isMac ? '⌥→' : 'F3'})`}
                                                         onClick={() => goToFlag(1)}
                                                         className={iconBtnClass}
                                                         type="button"
@@ -1009,14 +1017,14 @@ export function ExtractionOutputPane(props: ExtractionOutputPaneProps): React.Re
                     y={menu.y}
                     placement={menu.placement}
                     label="Table edits"
-                    items={buildTableMenu(editor, menu.target)}
+                    items={buildTableMenu(editor, menu.target, isMac)}
                     onClose={() => setMenu(null)}
                 />
             )}
 
             {helpOpen && (
                 <HelpOverlay title="Extracted Text & Table" onClose={() => setHelpOpen(false)}>
-                    <OutputHelp />
+                    <OutputHelp isMac={isMac} />
                 </HelpOverlay>
             )}
         </>

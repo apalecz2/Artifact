@@ -4,22 +4,26 @@
 
 ### UI / Frontend
 
-- toolbars should minimize tools to just icons when the width of that side is small
 - option to collapse pannels in session
 - note on poor quality extractions -- "try fixing the OCR on the left for better results"
-- Review claims of what hotkeys exist for table editing (alt ->, f3 etc)
-  - are these true? 
-  - update the help sections accordingly
 
-### Platform / macOS
+The manual checks below are a runnable checklist in
+[manual-test-plan.md](manual-test-plan.md), which also records what has already been
+verified and on which platform.
 
-- ~~The system menu bar's **Edit** items are Tauri's predefined native ones, which raise no
-  menu event, so they can't reach the session table's editor.~~ **Resolved** — see the
-  table-editor entry under *UI / Frontend*. The predefined Edit items were replaced with
-  custom ones that emit `menu:edit-command`, routed through the same `runEditMenuCommand`
-  the Windows/Linux menu uses. Verified by CI (unit tests on both sides); the on-hardware
-  checklist in [handoff-macos-edit-menu.md](handoff-macos-edit-menu.md) §4 still wants a
-  human pass — flagged in the UI/Frontend entry below.
+- **The hotkey audit is done on Windows** (2026-07-31) and open on macOS — plan §1. It
+  found three defects, all fixed and written up under Resolved: the menu/help hints
+  hardcoded `Ctrl` on macOS, Redo advertised a `⌘Y` that nothing handles there, and
+  `Alt+←` both stepped the review worklist and navigated back a page. `F2` is now
+  documented; `Shift+Tab` (saves, stays on the cell) was accepted as-is.
+- The **table editor's visuals** passed on Windows and have never been seen on macOS —
+  both themes: plan §3.
+- Confirm **Paste raises no clipboard permission prompt** on macOS — the Windows-side fix
+  routed reads through `tauri-plugin-clipboard-manager`, but WKWebView is a different
+  engine from WebView2. Paste working is not the same as no prompt appearing. Plan §2.
+- **Re-test that a scrolling command menu clears the window title bar** — plan §4. The
+  three 2026-07-31 fixes were re-tested and passed; that pass found this one, fixed the
+  same day and not yet verified.
 
 ### Build / Packaging
 
@@ -249,10 +253,12 @@ Added excel export support
      first, focused field via `execCommand` otherwise. The pane leaves the ⌘-key
      accelerators to the menu bar on macOS (`isMacPlatform` guard in
      `ExtractionOutputPane.tsx`, lifted to `lib/platform.ts`) so nothing fires twice.
-     Covered by unit tests on both sides; the hardware checklist in
-     [handoff-macos-edit-menu.md](handoff-macos-edit-menu.md) §4 (does ⌘Z reach the table
-     once, no clipboard prompt on Paste, the table visuals) has **not** been run on a Mac
-     yet and should be before release.
+     Covered by unit tests on both sides, and the key commands were **confirmed on real
+     Windows and macOS hardware** (2026-07-30) — each fires exactly once and reaches the
+     table. The rest of the checklist in
+     [handoff-macos-edit-menu.md](handoff-macos-edit-menu.md) §4 (no clipboard prompt on
+     Paste, the table editor's visuals) is still unrun — tracked under *Open ▸ UI /
+     Frontend*.
    - **Paste raised a browser permission prompt** ("localhost:1420 wants to see text and
      images copied to the clipboard", Block/Allow) — an on-device app asking the user's
      permission to read their own clipboard, which reads as a web page, not a desktop app.
@@ -265,7 +271,79 @@ Added excel export support
      .write` is granted outright for a focused document acting on a user gesture — so the
      copy path keeps the web API, which is what lets it offer HTML alongside plain text.
 
-3. **The setup wizard came up in light mode, and its back/forward buttons were dead** — both
+3. **`Alt+←` in the table both stepped the review worklist and navigated back a page**
+   (Windows/Linux), leaving the session the user was reviewing. `Alt+→` looked correct,
+   which is what hid it: forward history is normally empty, so its history half no-opped
+   and only the cell step was visible.
+   - **Root cause:** two `window` keydown listeners claimed the same chord. `TitleBar`'s
+     `historyShortcut` binds `Alt+←/→` to back/forward off macOS and calls
+     `preventDefault` but not `stopPropagation`, so `ExtractionOutputPane`'s handler ran
+     as well. macOS was unaffected — history lives on `⌘[`/`⌘]` there.
+   - **Fix:** the two platforms now have *different* review-nav keys, chosen by what is
+     free on each — `F3`/`Shift+F3` off macOS (browser-conventional "find next", collides
+     with nothing), `⌥←/→` on macOS (where `F3` is a media key needing `fn`, so it was
+     dropped rather than documented as a two-key chord). The mapping is one pure function,
+     `flagStepShortcut` in `lib/platform.ts`, unit-tested per platform; the toolbar chevron
+     tooltips and the help panel read from the same split.
+   - **Lesson:** the app has three `window`-level keydown handlers (title bar, table pane,
+     dialogs). None of them stop propagation, so a chord bound in one is *not* taken —
+     check the others before adding an accelerator.
+
+4. **A table command menu stayed open over a cleared selection, every row greyed out.**
+   With the right-click menu (or toolbar ▸ *Edit table*) open, clicking off the table to
+   deselect left the menu on screen with nothing it could do — every command is gated on
+   `hasSelection`.
+   - **Fix:** the deselect closes the menu. `ExtractionOutputPane`'s click-off handler now
+     calls `setMenu(null)` beside `clearCellSelection()`, so the two states move together;
+     both surfaces share that state, so the toolbar menu is covered by the same line.
+   - `ContextMenu` also stopped re-subscribing its outside-click/scroll/Escape listeners on
+     every render (an inline `onClose` gave them a new identity each time) — they now
+     register once and read `onClose` through a ref. Hardening, not the cause: a first
+     attempt blamed a mid-dispatch unsubscribe, but `useEffect` cleanups are passive and
+     don't run during an event dispatch, and a test written to prove it passed with and
+     without the change. Recorded so nobody re-derives the same wrong theory.
+
+5. **A command menu taller than the window had its bottom items cut off** at small window
+   sizes and high zoom, with no way to reach them. The layout effect clamps the menu's
+   position into the viewport, but clamping can only keep the *top* on screen — a menu
+   taller than the window still overflows the bottom.
+   - **Fix:** a measured `maxHeight` plus `overflow-y-auto`, so it scrolls instead.
+   - The close-on-scroll listener had to learn the difference: it fires on capture for
+     *any* scroll, so an internal scroll would have closed the menu the moment it became
+     useful. Scrolls originating inside the menu are now exempt.
+   - **Follow-up, same day:** capping the height fixed the *bottom* overflow but the top
+     was still clamped to the viewport, so the window title bar (`z-100`, over the menu's
+     `z-60`) covered the first item — a menu tall enough to scroll is exactly the one that
+     reaches the top. Both the clamp and the height cap now start below the bar, measured
+     from `[data-app-titlebar]` rather than assumed: its height differs by platform (macOS
+     insets for the traffic lights) and moves with the webview zoom. The layout effect
+     clamps the position using the *capped* height, not the natural one, or a too-tall
+     menu's top lands back under the bar.
+
+6. **Drag-selecting stopped dead at the edge of the table's viewport.** The pointer left
+   the last visible cell, no further `mouseenter` fired, and the view never moved — so a
+   range taller (or wider) than the viewport could only be built by scrolling first and
+   Shift+clicking, which isn't how any spreadsheet behaves.
+   - **Fix:** `useDragAutoScroll` in `ProvenanceTable` runs a rAF loop for the life of a
+     drag. Each frame it converts the pointer's position relative to the viewport into a
+     scroll delta (`autoScrollDelta` in `components/dragScroll.ts` — pure, unit-tested),
+     applies it, and extends the selection to whatever cell is now under the pointer.
+   - Three details that are load-bearing rather than incidental:
+     - **The two axes have different scrollers.** The table wrapper scrolls sideways, but
+       vertical scrolling belongs to a pane wrapper several levels up, so the drag walks
+       up for each (`findScrollParent`) instead of assuming one element.
+     - **`mouseenter` can't be the extension mechanism here.** Once the pointer is outside
+       the viewport there is no cell under it, so the loop clamps the point into the
+       viewport (`clampIntoBounds`) and reads the cell from `elementFromPoint` +
+       `data-cell-row`/`-col`. Inside the viewport the cells' own `mouseenter` still does
+       the work — the loop acts *only* when it actually scrolled something, so the common
+       case costs one idle frame and no re-renders.
+     - **Speed is capped and ramped.** Linear from the inner edge of a 36px band to
+       24px/frame at the boundary, then flat however far past it the pointer goes;
+       otherwise dragging to the far side of the screen would teleport the selection.
+       Deltas are whole pixels so a long drag accumulates no rounding drift.
+
+7. **The setup wizard came up in light mode, and its back/forward buttons were dead** — both
    because the wizard renders *instead of* the routes, so nothing the routed app sets up on
    the way in applies to it. Only visible on a **re-run** (Settings ▸ *Re-run setup*, or a
    re-consent run after an `EULA_VERSION` bump); a genuine first install has neither a
