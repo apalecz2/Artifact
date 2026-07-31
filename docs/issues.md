@@ -7,25 +7,6 @@
 - option to collapse pannels in session
 - note on poor quality extractions -- "try fixing the OCR on the left for better results"
 
-The manual checks below are a runnable checklist in
-[manual-test-plan.md](manual-test-plan.md), which also records what has already been
-verified and on which platform.
-
-- **The hotkey audit is done on Windows** (2026-07-31) and open on macOS — plan §1. It
-  found three defects, all fixed and written up under Resolved: the menu/help hints
-  hardcoded `Ctrl` on macOS, Redo advertised a `⌘Y` that nothing handles there, and
-  `Alt+←` both stepped the review worklist and navigated back a page. `F2` is now
-  documented; `Shift+Tab` (saves, stays on the cell) was accepted as-is. A first look on
-  macOS then found two the Windows pass structurally couldn't (also fixed, see Resolved) —
-  re-test with plan §1 #13a/#13b.
-- The **table editor's visuals** passed on Windows and have never been seen on macOS —
-  both themes: plan §3.
-- Confirm **Paste raises no clipboard permission prompt** on macOS — the Windows-side fix
-  routed reads through `tauri-plugin-clipboard-manager`, but WKWebView is a different
-  engine from WebView2. Paste working is not the same as no prompt appearing. Plan §2.
-- **Re-test that a scrolling command menu clears the window title bar** — plan §4. The
-  three 2026-07-31 fixes were re-tested and passed; that pass found this one, fixed the
-  same day and not yet verified.
 
 ### Build / Packaging
 
@@ -257,10 +238,10 @@ Added excel export support
      `ExtractionOutputPane.tsx`, lifted to `lib/platform.ts`) so nothing fires twice.
      Covered by unit tests on both sides, and the key commands were **confirmed on real
      Windows and macOS hardware** (2026-07-30) — each fires exactly once and reaches the
-     table. The rest of the checklist in
-     [handoff-macos-edit-menu.md](handoff-macos-edit-menu.md) §4 (no clipboard prompt on
-     Paste, the table editor's visuals) is still unrun — tracked under *Open ▸ UI /
-     Frontend*.
+     table. The remaining manual checks — no clipboard prompt on Paste, and the table
+     editor's visuals — were completed on **2026-07-31**. Paste raises no permission dialog
+     on WKWebView by any of its three routes (menu item, `⌘V`, right-click), so the
+     `tauri-plugin-clipboard-manager` fix holds on both engines.
    - **Paste raised a browser permission prompt** ("localhost:1420 wants to see text and
      images copied to the clipboard", Block/Allow) — an on-device app asking the user's
      permission to read their own clipboard, which reads as a web page, not a desktop app.
@@ -303,6 +284,9 @@ Added excel export support
        is where someone was looking at the symbol. Covered now by
        `SessionHelp.dom.test.tsx`, which asserts the rendered prose on both platforms —
        every hint in that file is one line-break away from the same trap.
+   - **Verified on Windows and macOS** (2026-07-31): the review-nav key works on each
+     platform's own binding and nowhere else, and every hint — menus, toolbar tooltips,
+     help panel — names the key that actually fires there.
 
 4. **A table command menu stayed open over a cleared selection, every row greyed out.**
    With the right-click menu (or toolbar ▸ *Edit table*) open, clicking off the table to
@@ -317,6 +301,8 @@ Added excel export support
      attempt blamed a mid-dispatch unsubscribe, but `useEffect` cleanups are passive and
      don't run during an event dispatch, and a test written to prove it passed with and
      without the change. Recorded so nobody re-derives the same wrong theory.
+   - **Verified on Windows and macOS** (2026-07-31), from both the right-click menu and the
+     toolbar's — which matters, since the fix assumed they share one piece of state.
 
 5. **A command menu taller than the window had its bottom items cut off** at small window
    sizes and high zoom, with no way to reach them. The layout effect clamps the menu's
@@ -334,6 +320,9 @@ Added excel export support
      insets for the traffic lights) and moves with the webview zoom. The layout effect
      clamps the position using the *capped* height, not the natural one, or a too-tall
      menu's top lands back under the bar.
+   - **Verified on Windows and macOS** (2026-07-31), including at maximum UI zoom and on
+     macOS's inset bar — the two cases that made measuring the bar necessary rather than
+     hardcoding its height.
 
 6. **Drag-selecting stopped dead at the edge of the table's viewport.** The pointer left
    the last visible cell, no further `mouseenter` fired, and the view never moved — so a
@@ -357,6 +346,10 @@ Added excel export support
        24px/frame at the boundary, then flat however far past it the pointer goes;
        otherwise dragging to the far side of the screen would teleport the selection.
        Deltas are whole pixels so a long drag accumulates no rounding drift.
+   - **Verified on Windows and macOS** (2026-07-31): both axes, all four directions, a
+     clean stop at the ends of the scroll range, and no runaway when the mouse is released
+     outside the window. Worth re-checking by hand after any change here — jsdom does no
+     layout, so the automated tests cover only the scroll arithmetic, not the DOM loop.
 
 7. **The setup wizard came up in light mode, and its back/forward buttons were dead** — both
    because the wizard renders *instead of* the routes, so nothing the routed app sets up on
