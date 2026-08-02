@@ -27,6 +27,22 @@ use crate::paths::pdfium_lib_name;
 
 const MAX_FILE_SIZE_BYTES: u64 = 500 * 1024 * 1024; // 500 MB
 
+/// Most pages one document may have. File size alone is no guard: a scanned book
+/// can be thousands of mostly-blank pages and a few hundred MB, and each page costs
+/// a 2000px pdfium render plus a Tesseract pass — order a second or two — so an
+/// uncapped job runs for hours. The cap is a runaway/wrong-file guard, not a product
+/// limit; nothing about the pipeline degrades before it. Split the PDF to go past it.
+///
+/// Typed `PdfPageIndex` (`u16`) on purpose — see [`validate_pdf_page_count`].
+const MAX_PDF_PAGES: PdfPageIndex = 2_000;
+
+/// The cap must stay well under the width of `PdfPageIndex`, because pdfium-render
+/// narrows the real page count to that type before we ever see it (again, see
+/// [`validate_pdf_page_count`]). Keeping a wide margin is what makes the wrap
+/// unreachable for real input rather than merely unlikely. Compile-time, so raising
+/// the cap toward `u16::MAX` fails the build instead of quietly re-opening it.
+const _: () = assert!(MAX_PDF_PAGES < PdfPageIndex::MAX / 2);
+
 /// Cancellation state for document processing. A long PDF can take minutes; without
 /// this the user has no way to abort a 100-page job once it starts (design review
 /// M13, and a prerequisite for the design's background queue, §6).
@@ -156,6 +172,41 @@ fn classify_extension(ext: &str) -> InputKind {
         "png" | "jpg" | "jpeg" => InputKind::Image,
         _ => InputKind::Unsupported,
     }
+}
+
+/// Decide whether a loaded PDF's page count is one we will process.
+///
+/// Rejects both ends. Zero is not a valid PDF — the spec requires a page tree with
+/// at least one page — so a document pdfium opened but reports as empty is damaged,
+/// and returning `Ok` with no pages is the worst outcome available: the frontend
+/// writes a `document_page_sets` marker of 0 next to 0 page rows, which its
+/// completeness check reads back as a *complete* cache, so the session shows an empty
+/// document forever with no way to retry into it.
+///
+/// The upper bound is [`MAX_PDF_PAGES`].
+///
+/// Note what this can and cannot see. `PdfPages::len()` is
+/// `FPDF_GetPageCount(..) as u16` inside pdfium-render, and the C function returns an
+/// `int` — so the truncation happens upstream, before any cast of ours, and a
+/// 70,000-page file arrives here already claiming 4,464. There is no way to detect
+/// that through the crate's safe API (the `FPDF_DOCUMENT` handle needed to call
+/// `FPDF_GetPageCount` ourselves is `pub(crate)`). The cap makes it moot for every
+/// realistic input: a document large enough to wrap is rejected on the truncated
+/// count too, unless it lands in 65,536..=67,535 pages exactly. That residual is
+/// accepted, not fixed.
+fn validate_pdf_page_count(page_count: PdfPageIndex) -> Result<(), String> {
+    if page_count == 0 {
+        return Err(
+            "This PDF reports no pages. The file is likely damaged or incomplete.".to_string(),
+        );
+    }
+    if page_count > MAX_PDF_PAGES {
+        return Err(format!(
+            "This PDF has {page_count} pages, more than the {MAX_PDF_PAGES}-page limit. \
+             Split it into smaller files and extract them separately."
+        ));
+    }
+    Ok(())
 }
 
 /// Name prefix for the per-run scratch directories under `<cache>/ocr/`. The sweep
@@ -538,9 +589,15 @@ fn process_document_blocking(
             .set_target_width(2000)
             .use_print_quality(true);
 
-        let page_count = document.pages().len() as usize;
+        // Stay in pdfium's own index type rather than round-tripping through `usize`:
+        // `get` takes a `PdfPageIndex`, so a `usize` loop counter has to be cast back
+        // on every iteration, and a cast at that spot reads like *we* are the ones
+        // narrowing the count (we aren't — see `validate_pdf_page_count`).
+        let page_count = document.pages().len();
+        validate_pdf_page_count(page_count)?;
+        let total_pages = usize::from(page_count);
 
-        for i in 0..page_count {
+        for index in 0..page_count {
             // Stop promptly between pages if the user cancelled. Checked before
             // rendering the next page so a cancel on a long PDF takes effect within
             // one page rather than running to completion.
@@ -548,28 +605,32 @@ fn process_document_blocking(
                 return Err(CANCELLED_MESSAGE.to_string());
             }
 
+            // The 1-based number shown to the user and written into file names.
+            // Widened first so the `+ 1` can't overflow the index type.
+            let page_number = usize::from(index) + 1;
+
             // Render + OCR a single page. Any failure here is captured as a per-page
             // error below rather than aborting the document, so one corrupt page in a
             // 100-page PDF doesn't discard the 99 that processed fine.
             let render_and_ocr = || -> Result<DocumentPageResult, String> {
                 let page = document
                     .pages()
-                    .get(i as u16)
-                    .map_err(|error| format!("failed to read page {}: {error}", i + 1))?;
+                    .get(index)
+                    .map_err(|error| format!("failed to read page {page_number}: {error}"))?;
 
                 let bitmap = page
                     .render_with_config(&render_config)
-                    .map_err(|error| format!("failed to render page {}: {error}", i + 1))?;
+                    .map_err(|error| format!("failed to render page {page_number}: {error}"))?;
 
                 let natural_width = bitmap.width();
                 let natural_height = bitmap.height();
 
                 let generated_path =
-                    session_dir.join(format!("{}_page_{}_{}.png", session_id, i + 1, timestamp));
+                    session_dir.join(format!("{session_id}_page_{page_number}_{timestamp}.png"));
                 bitmap
                     .as_image()
                     .save(&generated_path)
-                    .map_err(|error| format!("failed to save page {}: {error}", i + 1))?;
+                    .map_err(|error| format!("failed to save page {page_number}: {error}"))?;
 
                 ocr_image_to_page(
                     &generated_path,
@@ -597,8 +658,8 @@ fn process_document_blocking(
                 "process:progress",
                 ProcessProgress {
                     session_id: session_id.clone(),
-                    current_page: i + 1,
-                    total_pages: page_count,
+                    current_page: page_number,
+                    total_pages,
                 },
             );
         }
@@ -745,6 +806,30 @@ mod tests {
         // Idempotent: a second call doesn't error or change it.
         ensure_tesseract_tsv_config(dir.path());
         assert!(tsv.exists());
+    }
+
+    #[test]
+    fn validate_pdf_page_count_rejects_both_ends() {
+        assert!(validate_pdf_page_count(1).is_ok());
+        assert!(
+            validate_pdf_page_count(MAX_PDF_PAGES).is_ok(),
+            "the cap itself is allowed"
+        );
+
+        // Zero must not reach the frontend: 0 rows + a page_count-0 marker reads back
+        // as a *complete* cache, stranding the session on an empty document.
+        let empty = validate_pdf_page_count(0).unwrap_err();
+        assert!(empty.contains("no pages"), "got: {empty}");
+
+        let too_many = validate_pdf_page_count(MAX_PDF_PAGES + 1).unwrap_err();
+        assert!(
+            too_many.contains("2001") && too_many.contains("2000"),
+            "the message must name both the actual count and the limit; got: {too_many}"
+        );
+        assert!(
+            too_many.contains("Split"),
+            "the message must say what to do about it; got: {too_many}"
+        );
     }
 
     #[test]

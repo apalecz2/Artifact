@@ -34,29 +34,47 @@ export async function copyTextToClipboard(text: string): Promise<boolean> {
 }
 
 /**
+ * Whether a Tauri backend is present to serve `invoke`.
+ *
+ * `@tauri-apps/api`'s `invoke` dispatches through this global, so its absence is
+ * exactly the "running under plain `vite dev`, no backend" case — and nothing else.
+ * A plugin call that fails *with* the global present is a real failure, not a
+ * missing environment.
+ */
+const hasTauriBackend = (): boolean =>
+    typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+
+/**
  * Read the clipboard's text, natively.
  *
- * Not `navigator.clipboard.readText()`: that is a *web* API, so the webview
- * gates it behind Chromium's `clipboard-read` permission and pops up
- * "<origin> wants to see text and images copied to the clipboard" the first
- * time. A local desktop app pasting into its own window has no business showing
- * that, so reads go through Tauri's clipboard plugin, which asks the OS from
- * Rust and never prompts.
+ * Not `navigator.clipboard.readText()`: that is a *web* API, so the webview gates
+ * it behind Chromium's `clipboard-read` permission and pops up "<origin> wants to
+ * see text and images copied to the clipboard" the first time. A local desktop app
+ * pasting into its own window has no business showing that, so reads go through
+ * Tauri's clipboard plugin, which asks the OS from Rust and never prompts.
  *
- * The plugin import is dynamic and the web API is kept as the fallback so this
- * still works under a plain `vite dev` (no Tauri backend to call).
+ * The web API is kept only for a plain `vite dev` run, where there is no backend to
+ * ask and a dev-server origin prompting is nobody's problem. That case is detected
+ * up front rather than by catching a failure: the plugin is an ordinary npm package
+ * that imports fine without Tauri, so it is the *call* that fails there — meaning a
+ * `catch` around the call cannot tell "no backend" from "the OS refused". Treating
+ * the second as the first is what re-introduced the prompt this function exists to
+ * avoid, in the packaged app, at the one moment the user was already having trouble.
  *
- * Writing needs none of this — `navigator.clipboard.write` is granted outright
- * for a focused document acting on a user gesture — so `copyTableToClipboard`
- * below stays on the web API, where it can offer HTML alongside plain text.
+ * Inside the app a failure therefore propagates, and the caller says so —
+ * `useTableEditor.pasteFromClipboard` catches it and points at Ctrl+V, which rides
+ * the webview's own paste event and needs no permission at all.
+ *
+ * Writing needs none of this — `navigator.clipboard.write` is granted outright for
+ * a focused document acting on a user gesture — so `copyTableToClipboard` below
+ * stays on the web API, where it can offer HTML alongside plain text.
  */
 export async function readClipboardText(): Promise<string> {
-    try {
-        const { readText } = await import('@tauri-apps/plugin-clipboard-manager');
-        return (await readText()) ?? '';
-    } catch {
+    if (!hasTauriBackend()) {
         return (await navigator.clipboard.readText()) ?? '';
     }
+    const { readText } = await import('@tauri-apps/plugin-clipboard-manager');
+    return (await readText()) ?? '';
 }
 
 // Copy tabular data to the clipboard the way a spreadsheet (or Claude's chat) does:

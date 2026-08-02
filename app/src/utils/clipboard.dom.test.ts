@@ -78,12 +78,24 @@ describe('readClipboardText', () => {
         });
     };
 
+    /** Present = running inside the app; absent = plain `vite dev`. */
+    const stubTauriBackend = () => {
+        Object.defineProperty(window, '__TAURI_INTERNALS__', {
+            value: { invoke: vi.fn() },
+            configurable: true,
+            writable: true,
+        });
+    };
+
     beforeEach(() => {
         pluginReadText.mockReset();
+        stubTauriBackend();
     });
 
     afterEach(() => {
+        vi.restoreAllMocks();
         Reflect.deleteProperty(navigator, 'clipboard');
+        Reflect.deleteProperty(window, '__TAURI_INTERNALS__');
     });
 
     it('reads through the OS, never touching the permission-gated web API', async () => {
@@ -98,11 +110,28 @@ describe('readClipboardText', () => {
         expect(webRead).not.toHaveBeenCalled();
     });
 
-    it('falls back to the web API when there is no Tauri backend (plain vite dev)', async () => {
-        pluginReadText.mockRejectedValue(new Error('not running under Tauri'));
+    it('uses the web API when there is no Tauri backend (plain vite dev)', async () => {
+        // No backend to ask, and a dev-server origin prompting is nobody's problem.
+        Reflect.deleteProperty(window, '__TAURI_INTERNALS__');
         stubWebRead(vi.fn().mockResolvedValue('from the webview'));
 
         await expect(readClipboardText()).resolves.toBe('from the webview');
+        expect(pluginReadText).not.toHaveBeenCalled();
+    });
+
+    /**
+     * The regression this guards: a `catch` around the plugin call cannot tell "no
+     * Tauri backend" from "the OS refused", and treating the second as the first
+     * fell through to the web API — raising, inside the packaged app, the very
+     * permission prompt this function exists to avoid.
+     */
+    it('lets a plugin failure propagate rather than falling back and prompting', async () => {
+        pluginReadText.mockRejectedValue(new Error('clipboard unavailable'));
+        const webRead = vi.fn().mockResolvedValue('should never be read');
+        stubWebRead(webRead);
+
+        await expect(readClipboardText()).rejects.toThrow('clipboard unavailable');
+        expect(webRead).not.toHaveBeenCalled();
     });
 
     it('reports an empty clipboard as an empty string, not null', async () => {
