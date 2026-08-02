@@ -184,9 +184,15 @@ export default function DownloadStep({ config, onComplete, onError, onCancel }: 
                     } catch (primaryErr) {
                         if (cancelledRef.current) return; // cancelled, not a real failure
                         if (asset.url_fallback) {
-                            // Primary exhausted its retries (or failed verification). The
-                            // fallback is a different origin, so discard the partial bytes
-                            // before resuming — mixing two sources would corrupt the file.
+                            // The primary exhausted its reconnect-and-resume retries. Its
+                            // `.part` holds bytes from a *different origin* than the one we
+                            // are about to stream, and resuming one source into the other's
+                            // bytes would corrupt the file — so discard before switching.
+                            //
+                            // This is only about the origin change. A `.part` that failed
+                            // *verification* is already gone: `download_file` discards it at
+                            // the point of the decision, which is what keeps a mismatch
+                            // recoverable for the assets that have no fallback to fall to.
                             await invoke('clear_partial_download', { destPath: asset.dest_path });
                             await invoke('download_file', {
                                 url: asset.url_fallback,

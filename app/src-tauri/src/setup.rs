@@ -253,6 +253,51 @@ pub fn clear_partial_download(dest_path: String) -> Result<(), String> {
     }
 }
 
+/// Settle a fully-downloaded `.part`: promote it to `dest` when its hash matches
+/// (or when the unpinned-asset policy allows it), and **delete it** when the hash
+/// proves it is not this asset.
+///
+/// Deleting on a mismatch is what keeps a failed download recoverable, and it is the
+/// half of the `.part` contract that is easy to get backwards. The two failure modes
+/// are not alike:
+///
+/// * **Interrupted** — a cancel or a dropped connection. The bytes so far are good, so
+///   the `.part` is kept and the next run resumes from it (design §7.4, "Cancellable /
+///   resumable"). These paths never reach here.
+/// * **Verified wrong** — the completed bytes hash to something else. They can never
+///   become this asset, so they have no resume value, and *keeping* them wedges every
+///   later attempt: the next run Range-resumes from the bad prefix and re-hashes to the
+///   same mismatch, and once the `.part` is object-sized the server answers 416 and we
+///   re-hash it from disk to the same end. Nothing but the 7-day stale sweep would ever
+///   clear it. Since the recovery path design §7.1 specifies for a no-fallback asset is
+///   "surface an error and ask the user to re-run setup", that re-run has to start clean.
+///
+/// Discarding here rather than in the caller also covers the paths a caller cannot see:
+/// a mismatch on the *fallback* URL, and the 416 branch below.
+fn finalize_verified_part(
+    part_path: &Path,
+    dest: &Path,
+    asset_id: &str,
+    expected_sha256: &str,
+    actual_hex: Option<&str>,
+) -> Result<(), String> {
+    match actual_hex {
+        Some(actual) => {
+            if !actual.eq_ignore_ascii_case(expected_sha256) {
+                let _ = fs::remove_file(part_path);
+                return Err(format!(
+                    "hash mismatch for {asset_id}: expected {expected_sha256}, got {actual}"
+                ));
+            }
+        }
+        // No pinned digest: refused by policy in release, not proven corrupt. The bytes
+        // may well be fine, so the `.part` stays resumable for a build that pins them;
+        // the startup sweep reclaims it if the user never comes back.
+        None => accept_unpinned_or_err(&dest.to_string_lossy())?,
+    }
+    fs::rename(part_path, dest).map_err(|e| format!("rename failed: {e}"))
+}
+
 /// Download `url` to `dest_path`, verifying its SHA-256 *during* the download.
 ///
 /// The hash is computed incrementally from the same bytes as they stream through
@@ -260,8 +305,8 @@ pub fn clear_partial_download(dest_path: String) -> Result<(), String> {
 /// pass re-read every byte — a wasted ~3.5 GB of disk I/O across the asset set).
 /// The file is only renamed from `.part` to its final path once the hash matches,
 /// so a corrupt/truncated download never leaves a "complete-looking" file behind.
-/// On a hash mismatch the `.part` is kept so the caller can `clear_partial_download`
-/// and fall back to the alternate URL.
+/// On a hash mismatch the `.part` is discarded (see [`finalize_verified_part`]), so a
+/// retry — this run's fallback URL, or the user's next run — always starts clean.
 #[tauri::command]
 pub async fn download_file(
     app_handle: tauri::AppHandle,
@@ -286,8 +331,8 @@ pub async fn download_file(
         .build()
         .map_err(|e| format!("client build failed: {e}"))?;
 
-    // Finalize once the bytes on disk are known-good: emit a `verifying` tick,
-    // confirm the rolling hash (or apply the unpinned-asset policy), then rename.
+    // Finalize once the whole object is on disk: emit a `verifying` tick, then hand
+    // the `.part` to `finalize_verified_part`, which promotes or discards it.
     let finalize = |app_handle: &tauri::AppHandle,
                     hex: Option<String>,
                     bytes: u64,
@@ -302,18 +347,13 @@ pub async fn download_file(
                 total_bytes: total,
             },
         );
-        match hex {
-            Some(actual) => {
-                if !actual.eq_ignore_ascii_case(&expected_sha256) {
-                    // Keep `.part` — caller clears it before trying the fallback URL.
-                    return Err(format!(
-                        "hash mismatch for {asset_id}: expected {expected_sha256}, got {actual}"
-                    ));
-                }
-            }
-            None => accept_unpinned_or_err(&dest_path)?, // empty expected hash
-        }
-        fs::rename(&part_path, &dest).map_err(|e| format!("rename failed: {e}"))
+        finalize_verified_part(
+            &part_path,
+            &dest,
+            &asset_id,
+            &expected_sha256,
+            hex.as_deref(),
+        )
     };
 
     // Bind to the current install generation; if it advances (cancel / new run) we
@@ -1083,6 +1123,86 @@ mod tests {
 
         let want = format!("{:x}", Sha256::digest(b"23456"));
         assert_eq!(got, want);
+    }
+
+    /// A `.part` whose hash matches is promoted to the final path and no longer exists
+    /// as a partial — the "nothing reaches its final path until verified" half of §7.4.
+    #[test]
+    fn finalize_promotes_a_verified_part() {
+        use sha2::{Digest, Sha256};
+        let dir = tempfile::tempdir().unwrap();
+        let part = dir.path().join("asset.zip.part");
+        let dest = dir.path().join("asset.zip");
+        fs::write(&part, b"the real bytes").unwrap();
+        let good = format!("{:x}", Sha256::digest(b"the real bytes"));
+
+        finalize_verified_part(&part, &dest, "llama_server", &good, Some(&good)).unwrap();
+
+        assert!(!part.exists(), "the .part must not survive promotion");
+        assert_eq!(fs::read(&dest).unwrap(), b"the real bytes");
+    }
+
+    /// The anti-wedge guarantee: a `.part` proven not to be this asset is deleted, not
+    /// kept. Keeping it made a mismatch permanent for every asset with no fallback URL
+    /// (llama_server, cudart, pdfium, tesseract) — the next run would Range-resume from
+    /// the bad bytes and re-hash to the same mismatch forever. §7.1 promises that
+    /// re-running setup recovers, which requires starting from nothing.
+    #[test]
+    fn finalize_discards_a_mismatched_part_so_a_retry_starts_clean() {
+        let dir = tempfile::tempdir().unwrap();
+        let part = dir.path().join("asset.zip.part");
+        let dest = dir.path().join("asset.zip");
+        fs::write(&part, b"corrupted bytes").unwrap();
+
+        let error = finalize_verified_part(
+            &part,
+            &dest,
+            "cudart",
+            &"a".repeat(64),
+            Some(&"b".repeat(64)),
+        )
+        .expect_err("a mismatch must fail");
+
+        assert!(error.contains("hash mismatch for cudart"));
+        assert!(
+            !part.exists(),
+            "the mismatched .part must be discarded, or every later attempt resumes it"
+        );
+        assert!(!dest.exists(), "a mismatch must never reach the final path");
+    }
+
+    /// Hash comparison is case-insensitive, so a digest pinned in upper case still
+    /// promotes rather than being discarded as corrupt.
+    #[test]
+    fn finalize_accepts_a_differently_cased_digest() {
+        use sha2::{Digest, Sha256};
+        let dir = tempfile::tempdir().unwrap();
+        let part = dir.path().join("asset.bin.part");
+        let dest = dir.path().join("asset.bin");
+        fs::write(&part, b"payload").unwrap();
+        let good = format!("{:x}", Sha256::digest(b"payload"));
+
+        finalize_verified_part(&part, &dest, "pdfium", &good.to_uppercase(), Some(&good)).unwrap();
+        assert!(dest.exists());
+    }
+
+    /// An unpinned asset is refused by *policy*, not proven corrupt, so its `.part` is
+    /// left resumable. (Test builds carry `debug_assertions`, so the policy accepts and
+    /// the file is promoted; the discard-vs-keep distinction is what matters here.)
+    #[test]
+    fn finalize_keeps_an_unpinned_part_rather_than_discarding_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let part = dir.path().join("asset.bin.part");
+        let dest = dir.path().join("asset.bin");
+        fs::write(&part, b"unpinned").unwrap();
+
+        // None = nothing was hashed because no digest is pinned for this asset.
+        finalize_verified_part(&part, &dest, "llama_server", "", None).unwrap();
+
+        assert!(
+            !part.exists() && dest.exists(),
+            "debug builds accept an unpinned asset and promote it"
+        );
     }
 
     #[test]
