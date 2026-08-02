@@ -264,5 +264,52 @@ describe('useTableEditor', () => {
             expect(navigator.clipboard.writeText).toHaveBeenCalledWith('a\tb');
             vi.unstubAllGlobals();
         });
+
+        it('cuts the selection once the copy has landed', async () => {
+            vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
+            vi.stubGlobal('ClipboardItem', undefined);
+
+            const h = harness(gridOf([['h1', 'h2'], ['a', 'b']]));
+            h.run(() => h.editor().selectRow(1));
+            await act(async () => { await h.editor().cutSelection(); });
+            h.view.rerender();
+
+            expect(navigator.clipboard.writeText).toHaveBeenCalledWith('a\tb');
+            expect(values(h.state.rows)).toEqual([['h1', 'h2'], ['', '']]);
+            vi.unstubAllGlobals();
+        });
+
+        // The values would be gone from the grid *and* absent from the clipboard —
+        // the one command in the editor that can lose data outright.
+        it('leaves the cells alone when the clipboard refuses the cut', async () => {
+            vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn().mockRejectedValue(new Error('denied')) } });
+            vi.stubGlobal('ClipboardItem', undefined);
+
+            const h = harness(gridOf([['h1', 'h2'], ['a', 'b']]));
+            h.run(() => h.editor().selectRow(1));
+            await act(async () => { await h.editor().cutSelection(); });
+            h.view.rerender();
+
+            expect(values(h.state.rows)).toEqual([['h1', 'h2'], ['a', 'b']]);
+            expect(h.editor().canUndo).toBe(false);
+            expect(h.editor().notice).toMatch(/nothing was cut/i);
+            vi.unstubAllGlobals();
+        });
+
+        it('reports a failed copy without touching the grid', async () => {
+            vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn().mockRejectedValue(new Error('denied')) } });
+            vi.stubGlobal('ClipboardItem', undefined);
+
+            const h = harness(gridOf([['h1', 'h2'], ['a', 'b']]));
+            h.run(() => h.editor().selectRow(1));
+            let copied: boolean | undefined;
+            await act(async () => { copied = await h.editor().copySelection(); });
+            h.view.rerender();
+
+            expect(copied).toBe(false);
+            expect(values(h.state.rows)).toEqual([['h1', 'h2'], ['a', 'b']]);
+            expect(h.editor().notice).toMatch(/copy to the clipboard/i);
+            vi.unstubAllGlobals();
+        });
     });
 });

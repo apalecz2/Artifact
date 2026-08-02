@@ -368,18 +368,41 @@ export function useTableEditor({ rows, selectedCell, onApplyGrid, onSelectCell, 
 
     /* ── Clipboard ────────────────────────────────────────────────────────── */
 
-    const copySelection = async (): Promise<void> => {
-        if (!range || !hasGrid) return;
+    /** Write a range to the clipboard as TSV. Reports whether the clipboard actually
+     *  took it, rather than throwing — `cutSelection` has to know. */
+    const writeRangeToClipboard = async (selected: CellRange, failureNotice: string): Promise<boolean> => {
         try {
-            await copyTableToClipboard(rangeToStrings(grid, range));
+            await copyTableToClipboard(rangeToStrings(grid, selected));
+            return true;
         } catch {
-            setNotice("Couldn't copy to the clipboard.");
+            setNotice(failureNotice);
+            return false;
         }
     };
 
+    const copySelection = async (): Promise<boolean> => {
+        if (!range || !hasGrid) return false;
+        return writeRangeToClipboard(range, 'Couldn’t copy to the clipboard.');
+    };
+
+    /**
+     * Cut is copy-then-clear, and the copy has to land first.
+     *
+     * A clipboard write can genuinely fail (a webview that withholds
+     * `navigator.clipboard.write`, a denied permission), and clearing anyway would
+     * make this the one command in the editor that destroys data outright — the
+     * values gone from the grid *and* absent from the clipboard. Undo would recover
+     * them, but a user who just watched their cells vanish has no reason to expect
+     * that the "cut" they asked for didn't happen. So a failed copy leaves the
+     * selection exactly as it was and says so.
+     */
     const cutSelection = async (): Promise<void> => {
         if (!range || !hasGrid) return;
-        await copySelection();
+        const copied = await writeRangeToClipboard(
+            range,
+            'Couldn’t copy to the clipboard, so nothing was cut.',
+        );
+        if (!copied) return;
         commands.clear();
     };
 

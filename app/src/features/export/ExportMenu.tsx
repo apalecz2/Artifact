@@ -3,6 +3,7 @@ import type { ProvenanceCell } from '../extraction/types';
 import { parseCSV } from '../llama/promptUtils';
 import { toCsv, toHtml, toMarkdown, toPlainText, saveWithDialog, saveXlsxWithDialog } from './exportUtils';
 import type { SaveFormat } from './exportUtils';
+import { copyTextToClipboard } from '../../utils/clipboard';
 import Icon from '../../components/Icon';
 
 interface ExportMenuProps {
@@ -60,9 +61,28 @@ const FORMAT_CONFIG: Record<ExportFormatKey, TextFormatEntry | BinaryFormatEntry
     txt:  { kind: 'text',   label: 'Plain text', icon: 'text_fields', serialize: toPlainText, saveFormat: { ext: 'txt', label: 'Text files',  filters: [{ name: 'Text', extensions: ['txt']  }] } },
 };
 
+/** Transient result of the last action. Export is the app's terminal step, so a
+ *  failure that says nothing is the worst place to be silent — the user walks away
+ *  believing a file exists. `null` is the resting state; a *cancelled* save dialog
+ *  is also `null`, since dismissing a dialog needs no report. */
+type Feedback = { kind: 'copied' } | { kind: 'error'; message: string } | null;
+
+/** How long feedback stays up. An error carries a reason worth reading (and often
+ *  acting on), so it outlives the success tick by a wide margin. */
+const FEEDBACK_MS: Record<Exclude<Feedback, null>['kind'], number> = { copied: 2000, error: 8000 };
+
+/** Tauri rejects `invoke` with a plain string while the fs plugin rejects with an
+ *  Error — keep whichever reason we were handed instead of replacing a specific
+ *  cause ("The process cannot access the file") with a generic one. */
+function describeError(error: unknown): string {
+    if (error instanceof Error) return error.message;
+    if (typeof error === 'string') return error;
+    return 'Please try again.';
+}
+
 export function ExportMenu({ provenanceCells, savedCsv, fileStem, disabled, openUp, variant = 'default', collapsible }: ExportMenuProps) {
     const [open, setOpen] = useState(false);
-    const [copied, setCopied] = useState(false);
+    const [feedback, setFeedback] = useState<Feedback>(null);
     const menuRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -74,27 +94,48 @@ export function ExportMenu({ provenanceCells, savedCsv, fileStem, disabled, open
         return () => document.removeEventListener('mousedown', handler);
     }, [open]);
 
+    useEffect(() => {
+        if (!feedback) return;
+        const timer = setTimeout(() => setFeedback(null), FEEDBACK_MS[feedback.kind]);
+        return () => clearTimeout(timer);
+    }, [feedback]);
+
     const rows = normalizeRows(provenanceCells, savedCsv);
     const hasData = rows.length > 0;
+    const copied = feedback?.kind === 'copied';
 
     const handleExport = async (key: ExportFormatKey) => {
         setOpen(false);
         if (!hasData) return;
+        setFeedback(null);
         const format = FORMAT_CONFIG[key];
-        if (format.kind === 'text') {
-            await saveWithDialog(fileStem, format.serialize(rows), format.saveFormat);
-        } else {
-            await saveXlsxWithDialog(fileStem, rows, format.saveFormat);
+        try {
+            // Both helpers resolve `false` when the user dismisses the save dialog and
+            // reject only when the write itself failed — so a cancel stays silent while
+            // a real failure (locked file, no space, a grid too wide for XLSX) is named.
+            if (format.kind === 'text') {
+                await saveWithDialog(fileStem, format.serialize(rows), format.saveFormat);
+            } else {
+                await saveXlsxWithDialog(fileStem, rows, format.saveFormat);
+            }
+        } catch (error) {
+            console.error(`Failed to export ${key}:`, error);
+            setFeedback({
+                kind: 'error',
+                message: `Couldn’t save the ${format.label} file. ${describeError(error)}`,
+            });
         }
     };
 
-    const handleCopy = () => {
+    const handleCopy = async () => {
         setOpen(false);
         if (!hasData) return;
-        void navigator.clipboard.writeText(toMarkdown(rows)).then(() => {
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
-        });
+        // `copyTextToClipboard` reports rather than throws, and brings the
+        // `execCommand` fallback for webviews that withhold the async clipboard API.
+        const ok = await copyTextToClipboard(toMarkdown(rows));
+        setFeedback(ok
+            ? { kind: 'copied' }
+            : { kind: 'error', message: 'Couldn’t copy the table to the clipboard.' });
     };
 
     return (
@@ -133,12 +174,27 @@ export function ExportMenu({ provenanceCells, savedCsv, fileStem, disabled, open
                     ))}
                     <div className="border-t border-outline-variant my-1" />
                     <button
-                        onClick={handleCopy}
+                        onClick={() => { void handleCopy(); }}
                         className="w-full text-left px-4 py-2 text-sm text-on-surface hover:bg-surface-variant transition-colors flex items-center gap-2"
                     >
                         <Icon name="content_copy" size={16} />
                         Copy table
                     </button>
+                </div>
+            )}
+
+            {/* A failed save has no other tell — the dialog simply closes, exactly as
+                it does on a cancel. Anchored like the menu (and under the title bar's
+                z-100), so it can't be clipped by the toolbar it sits in. */}
+            {feedback?.kind === 'error' && (
+                <div
+                    role="alert"
+                    className={`absolute right-0 z-50 w-64 max-w-[70vw] rounded-xl border border-error/40 bg-surface px-3 py-2 text-xs leading-relaxed text-error shadow-lg ${openUp ? 'bottom-full mb-1' : 'top-full mt-1'}`}
+                >
+                    <span className="flex items-start gap-1.5">
+                        <Icon name="error" size={14} className="mt-px shrink-0" />
+                        <span className="min-w-0 wrap-break-word">{feedback.message}</span>
+                    </span>
                 </div>
             )}
         </div>

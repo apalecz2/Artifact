@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { ExportMenu } from './ExportMenu';
 import * as exportUtils from './exportUtils';
@@ -21,6 +21,10 @@ const rows: ProvenanceCell[][] = [[provCell('Name'), provCell('Age')], [provCell
 
 describe('ExportMenu', () => {
     beforeEach(() => vi.useRealTimers());
+    afterEach(() => {
+        Reflect.deleteProperty(document, 'execCommand');
+        Reflect.deleteProperty(navigator, 'clipboard');
+    });
 
     it('is disabled when there is no data', () => {
         render(<ExportMenu provenanceCells={null} savedCsv={null} fileStem="x" />);
@@ -105,5 +109,59 @@ describe('ExportMenu', () => {
         await act(async () => { vi.advanceTimersByTime(2000); });
         expect(screen.queryByText('Copied!')).not.toBeInTheDocument();
         vi.useRealTimers();
+    });
+
+    // Export is the app's terminal step: a save that fails and says nothing leaves
+    // the user believing a file exists.
+    it('reports a failed save with the reason it failed', async () => {
+        vi.mocked(exportUtils.saveWithDialog).mockRejectedValueOnce(
+            new Error('The process cannot access the file'),
+        );
+        render(<ExportMenu provenanceCells={rows} savedCsv={null} fileStem="report" />);
+        fireEvent.click(screen.getByRole('button', { name: /Export/ }));
+        fireEvent.click(screen.getByText('CSV'));
+
+        const alert = await screen.findByRole('alert');
+        expect(alert).toHaveTextContent(/Couldn’t save the CSV file/);
+        expect(alert).toHaveTextContent(/The process cannot access the file/);
+    });
+
+    it('reports a failed xlsx export too', async () => {
+        vi.mocked(exportUtils.saveXlsxWithDialog).mockRejectedValueOnce('too many columns for XLSX');
+        render(<ExportMenu provenanceCells={rows} savedCsv={null} fileStem="report" />);
+        fireEvent.click(screen.getByRole('button', { name: /Export/ }));
+        fireEvent.click(screen.getByText('Excel'));
+
+        const alert = await screen.findByRole('alert');
+        expect(alert).toHaveTextContent(/Couldn’t save the Excel file/);
+        // Tauri rejects `invoke` with a plain string — the reason must survive.
+        expect(alert).toHaveTextContent(/too many columns for XLSX/);
+    });
+
+    // `false` means the user dismissed the save dialog. Nothing happened, so nothing
+    // should be said — an "error" here would be the app crying wolf.
+    it('stays silent when the user cancels the save dialog', async () => {
+        vi.mocked(exportUtils.saveWithDialog).mockResolvedValueOnce(false);
+        render(<ExportMenu provenanceCells={rows} savedCsv={null} fileStem="report" />);
+        fireEvent.click(screen.getByRole('button', { name: /Export/ }));
+        fireEvent.click(screen.getByText('CSV'));
+
+        await waitFor(() => expect(exportUtils.saveWithDialog).toHaveBeenCalled());
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
+
+    it('reports a refused clipboard instead of silently showing nothing', async () => {
+        mockClipboard().mockRejectedValue(new Error('denied'));
+        // copyTextToClipboard's execCommand fallback has to decline too, or the copy
+        // would legitimately succeed. Defined (and torn down) the way clipboard's own
+        // spec does it — jsdom provides no execCommand of its own.
+        Object.defineProperty(document, 'execCommand', { value: () => false, configurable: true });
+        render(<ExportMenu provenanceCells={rows} savedCsv={null} fileStem="x" />);
+        fireEvent.click(screen.getByRole('button', { name: /Export/ }));
+        fireEvent.click(screen.getByText('Copy table'));
+
+        const alert = await screen.findByRole('alert');
+        expect(alert).toHaveTextContent(/Couldn’t copy the table to the clipboard/);
+        expect(screen.queryByText('Copied!')).not.toBeInTheDocument();
     });
 });
