@@ -63,7 +63,17 @@ export function toCsvForExport(rows: string[][]): string {
     return toCsv(rows.map(row => row.map(neutralizeFormula)));
 }
 
-function escHtml(s: string): string {
+/**
+ * Escape a cell for an HTML *text node*. Shared with the clipboard's `text/html`
+ * flavour ([clipboard.ts](../../utils/clipboard.ts)), which builds the same kind
+ * of table for a spreadsheet to paste — one escaper so a cell that survives a
+ * copy/paste also survives an export.
+ *
+ * `"` is escaped alongside `&<>` even though a text node doesn't require it: no
+ * caller interpolates a cell into an attribute today, and escaping it means one
+ * that later does isn't a quote-out-of-the-attribute bug.
+ */
+export function escapeHtmlText(s: string): string {
     return s
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
@@ -75,10 +85,10 @@ export function toHtml(rows: string[][]): string {
     if (rows.length === 0) return '';
     const [header, ...data] = rows;
     const thead =
-        `  <thead>\n    <tr>${header.map(h => `<th>${escHtml(h)}</th>`).join('')}</tr>\n  </thead>`;
+        `  <thead>\n    <tr>${header.map(h => `<th>${escapeHtmlText(h)}</th>`).join('')}</tr>\n  </thead>`;
     const tbody =
         `  <tbody>\n${data.map(row =>
-            `    <tr>${row.map(c => `<td>${escHtml(c)}</td>`).join('')}</tr>`
+            `    <tr>${row.map(c => `<td>${escapeHtmlText(c)}</td>`).join('')}</tr>`
         ).join('\n')}\n  </tbody>`;
     return [
         '<!DOCTYPE html>',

@@ -5,6 +5,7 @@
 
 import { BACKEND_LABEL } from '../setup/backend';
 import type { Backend, HardwareInfo } from '../setup/types';
+import { mbToGb } from '../../utils/format';
 
 /** Mirrors `InstallInfo` in src-tauri/src/install.rs. */
 export interface InstallInfo {
@@ -52,7 +53,7 @@ export function buildLabel(backend: Backend | null): string {
 export function graphicsLabel(hardware: HardwareInfo | null): string {
     if (!hardware) return UNKNOWN;
     if (!hardware.gpu_name) return 'None detected';
-    const vram = hardware.vram_mb != null ? ` · ${(hardware.vram_mb / 1024).toFixed(1)} GB` : '';
+    const vram = hardware.vram_mb != null ? ` · ${mbToGb(hardware.vram_mb)}` : '';
     return `${hardware.gpu_name}${vram}`;
 }
 
@@ -98,7 +99,7 @@ export function buildDiagnostics({
     if (hardware || hardwarePending) {
         fields.push({
             label: 'System memory',
-            value: hardware ? `${(hardware.ram_mb / 1024).toFixed(1)} GB` : PENDING,
+            value: hardware ? mbToGb(hardware.ram_mb) : PENDING,
         });
     }
     // Basename only: the directory is already shown as "Data folder", and the

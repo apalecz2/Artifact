@@ -18,6 +18,42 @@ const MAGIC_BYTES = 8;
 // Block size for that streamed copy; see `rechunk`.
 const COPY_CHUNK_BYTES = 4 * 1024 * 1024;
 
+// The "Best practices" modal's contents. Data rather than markup because every
+// section is the same icon + heading + bullet list, and the advice is the part
+// that changes as the pipeline's real failure modes do (see docs/issues.md).
+const BEST_PRACTICES: { icon: string; title: string; tips: string[] }[] = [
+    {
+        icon: 'image',
+        title: 'Image quality',
+        tips: [
+            'Use high-definition screenshots or PDFs. Avoid phone photos or blurry scans',
+            'Ensure tables are well-lit with no glare or shadows',
+            'Zoom in on the table before screenshotting ',
+        ],
+    },
+    {
+        icon: 'crop',
+        title: 'Composition',
+        tips: [
+            'Crop images tightly around the table, and minimize empty space around it',
+            'Ensure the header row is at the top of the image so Anchor knows what each column contains',
+        ],
+    },
+    {
+        icon: 'table_chart',
+        title: 'Table content',
+        tips: [
+            'Clear borders and cell separation help Anchor understand structure',
+            'Handwritten tables work, but typed text extracts more reliably',
+        ],
+    },
+    {
+        icon: 'description',
+        title: 'Files',
+        tips: ['Multi-page PDFs are supported; each page is processed'],
+    },
+];
+
 // Supported uploads, keyed by MIME type. `ext` is the canonical extension used for
 // the stored copy — derived from the verified type, never the user-supplied
 // filename, so a missing extension (no-dot name) or a spoofed one can't produce a
@@ -352,79 +388,23 @@ export default function Dashboard(): React.ReactElement {
 
                         {/* Modal Content */}
                         <div className="p-6 space-y-6">
-                            {/* Image quality section */}
-                            <div>
-                                <h4 className="font-headline-sm text-headline-sm text-on-surface mb-3 flex items-center gap-2">
-                                    <Icon name="image" size={18} className="text-primary" />
-                                    Image quality
-                                </h4>
-                                <ul className="space-y-2 ml-7">
-                                    <li className="font-body-sm text-body-sm text-on-surface-variant flex gap-3">
-                                        <span className="text-primary shrink-0 font-bold">•</span>
-                                        <span>Use high-definition screenshots or PDFs. Avoid phone photos or blurry scans</span>
-                                    </li>
-                                    <li className="font-body-sm text-body-sm text-on-surface-variant flex gap-3">
-                                        <span className="text-primary shrink-0 font-bold">•</span>
-                                        <span>Ensure tables are well-lit with no glare or shadows</span>
-                                    </li>
-                                    <li className="font-body-sm text-body-sm text-on-surface-variant flex gap-3">
-                                        <span className="text-primary shrink-0 font-bold">•</span>
-                                        <span>Zoom in on the table before screenshotting </span>
-                                    </li>
-                                </ul>
-                            </div>
-
-                            {/* Composition section */}
-                            <div>
-                                <h4 className="font-headline-sm text-headline-sm text-on-surface mb-3 flex items-center gap-2">
-                                    <Icon name="crop" size={18} className="text-primary" />
-                                    Composition
-                                </h4>
-                                <ul className="space-y-2 ml-7">
-                                    <li className="font-body-sm text-body-sm text-on-surface-variant flex gap-3">
-                                        <span className="text-primary shrink-0 font-bold">•</span>
-                                        <span>Crop images tightly around the table, and minimize empty space around it</span>
-                                    </li>
-                                    <li className="font-body-sm text-body-sm text-on-surface-variant flex gap-3">
-                                        <span className="text-primary shrink-0 font-bold">•</span>
-                                        <span>Ensure the header row is at the top of the image so Anchor knows what each column contains</span>
-                                    </li>
-                                </ul>
-                            </div>
-
-                            {/* Content section */}
-                            <div>
-                                <h4 className="font-headline-sm text-headline-sm text-on-surface mb-3 flex items-center gap-2">
-                                    <Icon name="table_chart" size={18} className="text-primary" />
-                                    Table content
-                                </h4>
-                                <ul className="space-y-2 ml-7">
-                                    <li className="font-body-sm text-body-sm text-on-surface-variant flex gap-3">
-                                        <span className="text-primary shrink-0 font-bold">•</span>
-                                        <span>Clear borders and cell separation help Anchor understand structure</span>
-                                    </li>
-                                    <li className="font-body-sm text-body-sm text-on-surface-variant flex gap-3">
-                                        <span className="text-primary shrink-0 font-bold">•</span>
-                                        <span>Handwritten tables work, but typed text extracts more reliably</span>
-                                    </li>
-                                </ul>
-                            </div>
-
-                            {/* Multi-page section */}
-                            <div>
-                                <h4 className="font-headline-sm text-headline-sm text-on-surface mb-3 flex items-center gap-2">
-                                    <Icon name="description" size={18} className="text-primary" />
-                                    Files
-                                </h4>
-                                <ul className="space-y-2 ml-7">
-                                    <li className="font-body-sm text-body-sm text-on-surface-variant flex gap-3">
-                                        <span className="text-primary shrink-0 font-bold">•</span>
-                                        <span>Multi-page PDFs are supported; each page is processed</span>
-                                    </li>
-                                </ul>
-                            </div>
+                            {BEST_PRACTICES.map(({ icon, title, tips }) => (
+                                <div key={title}>
+                                    <h4 className="font-headline-sm text-headline-sm text-on-surface mb-3 flex items-center gap-2">
+                                        <Icon name={icon} size={18} className="text-primary" />
+                                        {title}
+                                    </h4>
+                                    <ul className="space-y-2 ml-7">
+                                        {tips.map(tip => (
+                                            <li key={tip} className="font-body-sm text-body-sm text-on-surface-variant flex gap-3">
+                                                <span className="text-primary shrink-0 font-bold">•</span>
+                                                <span>{tip}</span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            ))}
                         </div>
-                        
 
                         {/* Modal Footer */}
                         <div className="border-t border-outline-variant p-6">

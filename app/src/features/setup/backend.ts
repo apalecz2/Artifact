@@ -1,4 +1,5 @@
 import type { Backend, HardwareInfo } from './types';
+import { mbToGb } from '../../utils/format';
 
 export const BACKEND_LABEL: Record<Backend, string> = {
     cuda:  'CUDA (NVIDIA GPU)',
@@ -28,7 +29,7 @@ export function backendWarning(backend: Backend, hw: HardwareInfo): string | nul
                 return `No NVIDIA GPU was detected (found ${hw.gpu_name ?? 'no GPU'}). The CUDA build needs an NVIDIA card to accelerate, so it will fall back to CPU speed.`;
             }
             if (hw.vram_mb != null && hw.vram_mb < 4096) {
-                return `Your GPU reports ${(hw.vram_mb / 1024).toFixed(1)} GB of VRAM, below the 4 GB recommended for CUDA. It may run out of memory on larger documents.`;
+                return `Your GPU reports ${mbToGb(hw.vram_mb)} of VRAM, below the 4 GB recommended for CUDA. It may run out of memory on larger documents.`;
             }
             return null;
         case 'rocm':

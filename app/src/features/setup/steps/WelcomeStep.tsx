@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { HardwareInfo } from '../types';
 import { BACKEND_LABEL } from '../backend';
 import Icon from '../../../components/Icon';
+import { mbToGb } from '../../../utils/format';
 
 interface Props {
     onAutomatic: (hardware: HardwareInfo) => void;
@@ -20,7 +21,7 @@ function summarize(hw: HardwareInfo): string {
     if (hw.recommended_backend === 'cpu' || !hw.gpu_name) {
         return `No compatible GPU detected. Anchor will install the ${build} build.`;
     }
-    const vram = hw.vram_mb != null ? ` (${(hw.vram_mb / 1024).toFixed(1)} GB)` : '';
+    const vram = hw.vram_mb != null ? ` (${mbToGb(hw.vram_mb)})` : '';
     return `Detected ${hw.gpu_name}${vram}. Anchor will install the ${build} build.`;
 }
 

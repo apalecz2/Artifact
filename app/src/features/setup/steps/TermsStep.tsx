@@ -2,6 +2,7 @@ import React, { useRef, useState } from 'react';
 import Icon from '../../../components/Icon';
 import Markdown from '../../legal/Markdown';
 import { eulaMarkdown, privacyMarkdown } from '../../legal/legalContent';
+import WizardBackButton from './WizardBackButton';
 import type { ConsentContext } from '../types';
 
 interface Props {
@@ -116,16 +117,7 @@ export default function TermsStep({ context, onAccept, onBack }: Props): React.R
             </label>
 
             <div className="flex items-center justify-between gap-4">
-                {onBack ? (
-                    <button
-                        type="button"
-                        onClick={onBack}
-                        className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-outline-variant bg-surface-container hover:bg-surface-container-high font-label-md text-label-md text-on-surface-variant transition-colors"
-                    >
-                        <Icon name="arrow_back" size={18} />
-                        Back
-                    </button>
-                ) : <div />}
+                {onBack ? <WizardBackButton onBack={onBack} /> : <div />}
 
                 <div className="flex items-center gap-3">
                     <button

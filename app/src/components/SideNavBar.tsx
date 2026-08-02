@@ -1,4 +1,4 @@
-import { FC, useEffect, useState } from 'react';
+import React, { FC, useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { DeleteSessionDialog } from '../features/sessions/DeleteSessionDialog';
 import { mergePreservingOrder } from '../features/sessions/recentOrder';
@@ -25,6 +25,64 @@ export const defaultNavItems: NavItem[] = [
     { id: 'settings', icon: 'settings', label: 'Settings', href: '/settings' },
     { id: 'about', icon: 'info', label: 'About', href: '/about' },
 ];
+
+/**
+ * One row of the sidebar — the main items and the recent-session list render the
+ * same control, differing only in what goes inside it and whether it carries a
+ * context menu.
+ *
+ * The element it renders is decided by the item, not the caller: an item with an
+ * `href` and no handler is a real `<Link>`, so it keeps middle-click, the browser's
+ * "open in new tab", and a focus ring that reads as a link; anything else is a
+ * `<button>`, which is what a row that only runs a callback should be. Keeping that
+ * choice here is what stopped the two lists from drifting apart on it.
+ */
+const NavRow: FC<{
+    item: NavItem;
+    isActive: boolean;
+    collapsed: boolean;
+    onSelect: () => void;
+    onContextMenu?: (event: React.MouseEvent) => void;
+    children: React.ReactNode;
+}> = ({ item, isActive, collapsed, onSelect, onContextMenu, children }) => {
+    const className = `
+        flex h-10 w-full shrink-0 cursor-pointer items-center rounded-[10px]
+        transition-all duration-300 ease-out overflow-hidden
+        ${collapsed ? 'md:px-2 px-3' : 'px-3'}
+        ${isActive
+            ? 'bg-primary/10 text-primary'
+            : 'text-on-surface hover:bg-surface-variant'
+        }
+    `;
+    // The collapsed rail shows icons only, so the label has to come back as a
+    // tooltip or the row is unidentifiable.
+    const shared = {
+        className,
+        'aria-current': isActive ? ('page' as const) : undefined,
+        title: collapsed ? item.label : undefined,
+    };
+
+    if (item.href && !item.onClick) {
+        return (
+            <Link to={item.href} {...shared} onClick={onSelect} onContextMenu={onContextMenu}>
+                {children}
+            </Link>
+        );
+    }
+
+    return (
+        <button
+            type="button"
+            {...shared}
+            onClick={() => {
+                item.onClick?.();
+                onSelect();
+            }}
+        >
+            {children}
+        </button>
+    );
+};
 
 // ─── Component Props ───────────────────────────────────────────────────────────
 interface SideNavBarProps {
@@ -158,8 +216,14 @@ const SideNavBar: FC<SideNavBarProps> = ({
                     {navItems.map((item) => {
                         const isActive = item.id === activeId;
 
-                        const content = (
-                            <>
+                        return (
+                            <NavRow
+                                key={item.id}
+                                item={item}
+                                isActive={isActive}
+                                collapsed={collapsed}
+                                onSelect={handleItemSelect}
+                            >
                                 {/* Icon — always visible, centered in collapsed state */}
                                 <Icon
                                     name={item.icon}
@@ -187,49 +251,7 @@ const SideNavBar: FC<SideNavBarProps> = ({
                                 >
                                     {item.label}
                                 </span>
-                            </>
-                        );
-
-                        const sharedClassName = `
-                            flex h-10 w-full shrink-0 cursor-pointer items-center rounded-[10px]
-                            transition-all duration-300 ease-out overflow-hidden
-                            ${collapsed ? 'md:px-2 px-3' : 'px-3'}
-                            ${isActive
-                                ? 'bg-primary/10 text-primary'
-                                : 'text-on-surface hover:bg-surface-variant'
-                            }
-                        `;
-
-                        // Render as <a> when href is provided, otherwise <button>
-                        if (item.href && !item.onClick) {
-                            return (
-                                <Link
-                                    key={item.id}
-                                    to={item.href}
-                                    className={sharedClassName}
-                                    aria-current={isActive ? 'page' : undefined}
-                                    title={collapsed ? item.label : undefined}
-                                    onClick={handleItemSelect}
-                                >
-                                    {content}
-                                </Link>
-                            );
-                        }
-
-                        return (
-                            <button
-                                key={item.id}
-                                type="button"
-                                onClick={() => {
-                                    item.onClick?.();
-                                    handleItemSelect();
-                                }}
-                                className={sharedClassName}
-                                aria-current={isActive ? 'page' : undefined}
-                                title={collapsed ? item.label : undefined}
-                            >
-                                {content}
-                            </button>
+                            </NavRow>
                         );
                     })}
                     </div>
@@ -272,59 +294,26 @@ const SideNavBar: FC<SideNavBarProps> = ({
                             {displayedRecents.map((item) => {
                                 const isActive = item.id === activeId;
 
-                                const content = (
-                                    <span className="min-w-56 truncate text-sm font-medium">
-                                        {item.label}
-                                    </span>
-                                );
-
-                                const sharedClassName = `
-                                    flex h-10 w-full shrink-0 cursor-pointer items-center rounded-[10px]
-                                    transition-all duration-300 ease-out overflow-hidden
-                                    ${collapsed ? 'md:px-2 px-3' : 'px-3'}
-                                    ${isActive
-                                        ? 'bg-primary/10 text-primary'
-                                        : 'text-on-surface hover:bg-surface-variant'
-                                    }
-                                `;
-
-                                if (item.href && !item.onClick) {
-                                    return (
-                                        <Link
-                                            key={item.id}
-                                            to={item.href}
-                                            className={sharedClassName}
-                                            aria-current={isActive ? 'page' : undefined}
-                                            title={collapsed ? item.label : undefined}
-                                            onClick={handleItemSelect}
-                                            onContextMenu={(event) => {
-                                                event.preventDefault();
-                                                setRecentContextMenu({
-                                                    x: event.clientX,
-                                                    y: event.clientY,
-                                                    item,
-                                                });
-                                            }}
-                                        >
-                                            {content}
-                                        </Link>
-                                    );
-                                }
-
                                 return (
-                                    <button
+                                    <NavRow
                                         key={item.id}
-                                        type="button"
-                                        onClick={() => {
-                                            item.onClick?.();
-                                            handleItemSelect();
+                                        item={item}
+                                        isActive={isActive}
+                                        collapsed={collapsed}
+                                        onSelect={handleItemSelect}
+                                        onContextMenu={(event) => {
+                                            event.preventDefault();
+                                            setRecentContextMenu({
+                                                x: event.clientX,
+                                                y: event.clientY,
+                                                item,
+                                            });
                                         }}
-                                        className={sharedClassName}
-                                        aria-current={isActive ? 'page' : undefined}
-                                        title={collapsed ? item.label : undefined}
                                     >
-                                        {content}
-                                    </button>
+                                        <span className="min-w-56 truncate text-sm font-medium">
+                                            {item.label}
+                                        </span>
+                                    </NavRow>
                                 );
                             })}
                             </div>

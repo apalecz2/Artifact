@@ -2,15 +2,13 @@ import React, { useState } from 'react';
 import type { Backend, HardwareInfo, SetupConfig } from '../types';
 import { BACKEND_DESCRIPTION, BACKEND_LABEL, backendWarning } from '../backend';
 import Icon from '../../../components/Icon';
+import { formatMb } from '../../../utils/format';
+import WizardBackButton from './WizardBackButton';
 
 interface Props {
     hardware: HardwareInfo;
     onNext: (config: SetupConfig) => void;
     onBack: () => void;
-}
-
-function formatMb(mb: number): string {
-    return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb} MB`;
 }
 
 export default function ConfigStep({ hardware, onNext, onBack }: Props): React.ReactElement {
@@ -103,14 +101,7 @@ export default function ConfigStep({ hardware, onNext, onBack }: Props): React.R
             )}
 
             <div className="flex justify-between">
-                <button
-                    type="button"
-                    onClick={onBack}
-                    className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-outline-variant bg-surface-container hover:bg-surface-container-high font-label-md text-label-md text-on-surface-variant transition-colors"
-                >
-                    <Icon name="arrow_back" size={18} />
-                    Back
-                </button>
+                <WizardBackButton onBack={onBack} />
                 <button
                     type="button"
                     onClick={() => onNext({ backend })}

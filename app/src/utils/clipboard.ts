@@ -1,3 +1,5 @@
+import { escapeHtmlText } from '../features/export/exportUtils';
+
 /**
  * Copy plain text, reporting success instead of throwing.
  *
@@ -87,12 +89,11 @@ export async function copyTableToClipboard(rows: string[][]): Promise<void> {
     const tsvCell = (s: string) => (/[\t\n\r"]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
     const tsv = rows.map(r => r.map(tsvCell).join('\t')).join('\n');
 
-    const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const [head, ...body] = rows;
     const html =
         '<table>' +
-        (head ? `<thead><tr>${head.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead>` : '') +
-        `<tbody>${body.map(r => `<tr>${r.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody>` +
+        (head ? `<thead><tr>${head.map(c => `<th>${escapeHtmlText(c)}</th>`).join('')}</tr></thead>` : '') +
+        `<tbody>${body.map(r => `<tr>${r.map(c => `<td>${escapeHtmlText(c)}</td>`).join('')}</tr>`).join('')}</tbody>` +
         '</table>';
 
     if (typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write) {

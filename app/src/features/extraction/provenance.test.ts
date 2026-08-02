@@ -7,6 +7,7 @@ import {
     levenshtein,
     similarity,
     normalize,
+    unclaimedWordsInRegion,
 } from './provenance';
 import { ocrWord as word, provenanceCell } from '../../test/fixtures';
 
@@ -50,6 +51,38 @@ describe('padProvenanceGrid', () => {
         ];
         expect(padProvenanceGrid(rows)).toBe(rows);
         expect(padProvenanceGrid([])).toEqual([]);
+    });
+});
+
+describe('unclaimedWordsInRegion', () => {
+    // A 2x2 arrangement of 10x10 words: centers at (5,5), (105,5), (5,105), (105,105).
+    const words = [
+        word('tl', 0, 0),
+        word('tr', 100, 0),
+        word('bl', 0, 100),
+        word('br', 100, 100),
+    ];
+    const topRow = { lo: 0, hi: 10 };
+    const leftCol = { lo: 0, hi: 10 };
+
+    it('returns only words centered inside both bands', () => {
+        expect(unclaimedWordsInRegion(words, new Set(), topRow, leftCol)).toEqual([0]);
+        expect(unclaimedWordsInRegion(words, new Set(), topRow, { lo: 100, hi: 110 })).toEqual([1]);
+    });
+
+    it('skips words another cell already claimed', () => {
+        expect(unclaimedWordsInRegion(words, new Set([0]), topRow, leftCol)).toEqual([]);
+    });
+
+    it('returns matches in reading order', () => {
+        const all = unclaimedWordsInRegion(words, new Set(), { lo: 0, hi: 110 }, { lo: 0, hi: 110 });
+        expect(all).toEqual([0, 1, 2, 3]);
+    });
+
+    it('tests the center, not overlap — a word straddling an edge falls to one side only', () => {
+        // Word center y=5; a band ending at 4 excludes it even though the box overlaps.
+        expect(unclaimedWordsInRegion(words, new Set(), { lo: 0, hi: 4 }, leftCol)).toEqual([]);
+        expect(unclaimedWordsInRegion(words, new Set(), { lo: 5, hi: 20 }, leftCol)).toEqual([0]);
     });
 });
 

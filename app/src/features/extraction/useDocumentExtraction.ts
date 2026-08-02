@@ -237,43 +237,57 @@ export function useDocumentExtraction(sessionId: string | undefined, activePageI
         }
     };
 
-    const addWord = async (text: string, box: BoundingBox) => {
+    /**
+     * Apply an edit to the active page's OCR words and persist it.
+     *
+     * The clone is the point: `edit` mutates freely (splice, field assignment),
+     * and `updateDb` needs a page object React has never rendered, or the state
+     * update it does would be a no-op reference-wise. `edit` returning false
+     * abandons the write — the word it was looking for isn't there, so there is
+     * nothing to save.
+     */
+    const editActivePageWords = async (
+        edit: (page: DocumentPageResult) => boolean | void
+    ) => {
         if (!extractionResult) return;
         const updatedPage = structuredClone(extractionResult.pages[activePageIndex]);
-        updatedPage.words = sortWords([
-            ...updatedPage.words,
-            {
-                id: crypto.randomUUID(),
-                text,
-                confidence: 100,
-                box_coords: box,
-            },
-        ], updatedPage.natural_height);
+        if (edit(updatedPage) === false) return;
         await updateDb(updatedPage);
     };
 
-    const editWord = async (id: string, text: string) => {
-        if (!extractionResult) return;
-        const updatedPage = structuredClone(extractionResult.pages[activePageIndex]);
-        const idx = updatedPage.words.findIndex(w => w.id === id);
-        if (idx === -1) return;
-        if (text.trim() === "") {
-            updatedPage.words.splice(idx, 1);
-        } else {
-            updatedPage.words[idx].text = text.trim();
-            updatedPage.words[idx].confidence = 100;
-        }
-        await updateDb(updatedPage);
-    };
+    const addWord = (text: string, box: BoundingBox) =>
+        editActivePageWords(page => {
+            page.words = sortWords([
+                ...page.words,
+                {
+                    id: crypto.randomUUID(),
+                    text,
+                    confidence: 100,
+                    box_coords: box,
+                },
+            ], page.natural_height);
+        });
 
-    const deleteWord = async (id: string) => {
-        if (!extractionResult) return;
-        const updatedPage = structuredClone(extractionResult.pages[activePageIndex]);
-        const idx = updatedPage.words.findIndex(w => w.id === id);
-        if (idx === -1) return;
-        updatedPage.words.splice(idx, 1);
-        await updateDb(updatedPage);
-    };
+    const editWord = (id: string, text: string) =>
+        editActivePageWords(page => {
+            const idx = page.words.findIndex(w => w.id === id);
+            if (idx === -1) return false;
+            // An emptied word is a deletion — the editor's "clear the text and
+            // commit" is how a mis-OCR'd speck gets removed.
+            if (text.trim() === "") {
+                page.words.splice(idx, 1);
+            } else {
+                page.words[idx].text = text.trim();
+                page.words[idx].confidence = 100;
+            }
+        });
+
+    const deleteWord = (id: string) =>
+        editActivePageWords(page => {
+            const idx = page.words.findIndex(w => w.id === id);
+            if (idx === -1) return false;
+            page.words.splice(idx, 1);
+        });
 
     // Load the active page image as a same-origin blob URL rather than handing
     // the viewer a convertFileSrc `asset://` URL. On macOS the asset protocol is

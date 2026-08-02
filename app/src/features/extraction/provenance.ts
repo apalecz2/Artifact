@@ -584,6 +584,28 @@ function horizontalSpan(cells: WorkingCell[], ocrWords: OcrWord[]): Span | null 
 
 const within = (v: number, s: Span): boolean => v >= s.lo && v <= s.hi;
 
+// Indices of OCR words whose *center* falls inside the row∩column region, in
+// reading order, skipping any word another cell already claimed. Centers (not
+// overlap) are the test everywhere a cell's region is resolved from anchor
+// bands: a word straddling a band edge belongs to whichever side holds its
+// middle, so the two passes below can never both take it.
+export function unclaimedWordsInRegion(
+    ocrWords: OcrWord[],
+    claimed: Set<number>,
+    rowBand: Span,
+    colBand: Span,
+): number[] {
+    const found: number[] = [];
+    for (let i = 0; i < ocrWords.length; i++) {
+        if (claimed.has(i)) continue;
+        const b = ocrWords[i].box_coords;
+        const cx = b.left + b.width / 2;
+        const cy = b.top + b.height / 2;
+        if (within(cy, rowBand) && within(cx, colBand)) found.push(i);
+    }
+    return found;
+}
+
 // Final recovery pass — grid cross-check (design review F2). Unlike the primary
 // grid matcher (which needs detectable whitespace channels), this triangulates a
 // still-unmatched cell from words its neighbours *actually matched*: the row
@@ -611,16 +633,7 @@ function gridMatchPass(
             );
             if (!rowBand || !colBand) continue;
 
-            // OCR words centered in the row∩column cell region, in reading order,
-            // excluding any already claimed by another cell.
-            const candidates: number[] = [];
-            for (let i = 0; i < ocrWords.length; i++) {
-                if (claimed.has(i)) continue;
-                const b = ocrWords[i].box_coords;
-                const cx = b.left + b.width / 2;
-                const cy = b.top + b.height / 2;
-                if (within(cy, rowBand) && within(cx, colBand)) candidates.push(i);
-            }
+            const candidates = unclaimedWordsInRegion(ocrWords, claimed, rowBand, colBand);
 
             const best = bestRunMatch(ocrWords, candidates, target);
             if (best) applyRunMatch(cell, best, claimed);
@@ -688,18 +701,8 @@ function verifyEmptyCellsPass(
             const colBand = columnRegion(r, c);
             if (!colBand) continue;
 
-            const overlooked: number[] = [];
-            let chars = 0;
-            for (let i = 0; i < ocrWords.length; i++) {
-                if (claimed.has(i)) continue;
-                const b = ocrWords[i].box_coords;
-                const cx = b.left + b.width / 2;
-                const cy = b.top + b.height / 2;
-                if (within(cx, colBand) && within(cy, rowBand)) {
-                    overlooked.push(i);
-                    chars += normalize(ocrWords[i].text).length;
-                }
-            }
+            const overlooked = unclaimedWordsInRegion(ocrWords, claimed, rowBand, colBand);
+            const chars = overlooked.reduce((n, i) => n + normalize(ocrWords[i].text).length, 0);
             if (chars >= MIN_OVERLOOKED_CHARS) cell.wordIdx = overlooked;
         }
     }

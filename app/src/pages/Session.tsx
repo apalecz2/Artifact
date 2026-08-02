@@ -128,6 +128,26 @@ function SessionContent(): React.ReactElement {
         setTableGeneration(generation => generation + 1);
     };
 
+    /**
+     * Drop everything that describes the table currently on screen: the cell/word
+     * selection with its image highlight, and the three banners the last extraction
+     * left behind (error, truncation, context overflow).
+     *
+     * Called wherever the table underneath is about to be replaced — loading a
+     * different page's saved table, or starting a fresh extraction. Each of those
+     * has to clear *all* of it: a `selectedCell` kept across the swap points at a
+     * row that may not exist in the new grid, and a stale error banner sits above a
+     * table that just extracted cleanly.
+     */
+    const clearTableView = () => {
+        setSelectedCell(null);
+        setSelectedWordId(null);
+        setProvenanceHighlightBox(null);
+        setExtractionError(null);
+        setTruncated(false);
+        setContextOverflow(false);
+    };
+
     // Copy handlers throw on failure so CopyButton can keep its confirmation state
     // accurate; CopyButton owns the transient "Copied" UI.
     const handleCopyRawText = () => navigator.clipboard.writeText(rawText);
@@ -189,12 +209,7 @@ function SessionContent(): React.ReactElement {
             // Pad ragged grids (the model may omit trailing empty cells; older
             // sessions persisted them that way) so the last column always renders.
             replaceTable(csv, mappingsJson ? padProvenanceGrid(JSON.parse(mappingsJson) as ProvenanceCell[][]) : null);
-            setSelectedCell(null);
-            setSelectedWordId(null);
-            setProvenanceHighlightBox(null);
-            setExtractionError(null);
-            setTruncated(false);
-            setContextOverflow(false);
+            clearTableView();
             if (csv) setOutputView('table');
         }
         load();
@@ -216,12 +231,7 @@ function SessionContent(): React.ReactElement {
     const handleFormatTable = async (boostTokens = false) => {
         if (!fileUrl || !activePage?.words.length || !id) return;
         setOutputView('table');
-        setSelectedCell(null);
-        setSelectedWordId(null);
-        setProvenanceHighlightBox(null);
-        setExtractionError(null);
-        setTruncated(false);
-        setContextOverflow(false);
+        clearTableView();
 
         try {
             const result = await requestTableFormat(
