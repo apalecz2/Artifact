@@ -5,8 +5,62 @@ function escCsv(cell: string): string {
     return /[,"\n\r]/.test(escaped) ? `"${escaped}"` : escaped;
 }
 
+/**
+ * RFC-4180 CSV. This is the **round-trip** serializer, not the export one.
+ *
+ * Its output is also what gets persisted (`csv_outputs.csv_content`) and read back
+ * through `parseCSV` into the displayed table, so it must reproduce cell values
+ * byte for byte. Anything that alters a value for a *consumer's* benefit belongs in
+ * `toCsvForExport` below, never here — a guard added at this level would write its
+ * escapes into the database and show them in the app's own grid.
+ */
 export function toCsv(rows: string[][]): string {
     return rows.map(row => row.map(escCsv).join(',')).join('\r\n');
+}
+
+// Leading characters a spreadsheet may read as the start of a formula rather than
+// as data. Tab and CR are included because they let following text drift into a
+// neighbouring cell's formula context.
+const FORMULA_LEAD = /^[=+\-@\t\r]/;
+
+// A value a spreadsheet evaluates as a *number*: optional sign, optional currency
+// mark, digits with optional group separators, optional decimal part, optional
+// exponent, optional percent. These carry no formula risk and must survive export
+// untouched — see `neutralizeFormula`.
+const PLAIN_NUMBER = /^[+-]?[$€£¥]?\d[\d,\s]*(\.\d+)?([eE][+-]?\d+)?%?$/;
+
+/**
+ * Defuse spreadsheet formula injection (OWASP "CSV injection") in one cell.
+ *
+ * Every value we export came out of a document *we did not write* — a scanned page
+ * someone handed the user. A cell reading `=cmd|'/c calc'!A1` is inert in our table
+ * and inert in the CSV file itself, and becomes code the moment Excel or
+ * LibreOffice opens it. A formula-shaped cell is therefore prefixed with an
+ * apostrophe, the spreadsheet convention for "this is text".
+ *
+ * Deliberately narrower than the usual advice, which is to escape every leading
+ * `=`, `+`, `-` and `@`. That rule is written for exporting *application* records,
+ * and it wrecks a data-extraction tool: a leading `-` is nearly always a negative
+ * number, and prefixing those would silently turn every negative amount in the
+ * sheet into text and break the arithmetic the user exported it to do. So numbers
+ * are recognised and passed through, and only values that are formula-shaped *and*
+ * not data get the prefix.
+ *
+ * Not applied to the clipboard or to `toCsv`: copy/paste has to round-trip back
+ * into our own editor, and `toCsv` is what we persist. The XLSX path needs no
+ * guard at all — `export_xlsx` writes cells via `write_string`, so the spreadsheet
+ * receives them already typed as text.
+ */
+export function neutralizeFormula(cell: string): string {
+    if (!FORMULA_LEAD.test(cell) || PLAIN_NUMBER.test(cell)) return cell;
+    return `'${cell}`;
+}
+
+/** CSV destined for a file the user will open in a spreadsheet: `toCsv`, with
+ *  formula-shaped cells neutralized first (so the apostrophe is inside the quoting,
+ *  not bolted on after it). */
+export function toCsvForExport(rows: string[][]): string {
+    return toCsv(rows.map(row => row.map(neutralizeFormula)));
 }
 
 function escHtml(s: string): string {
@@ -40,9 +94,31 @@ export function toHtml(rows: string[][]): string {
     ].join('\n');
 }
 
+/**
+ * Escape one cell for a Markdown table.
+ *
+ * A table cell is pipe-delimited, so a literal `|` in a value ends the cell early
+ * and shifts every column after it on that row — the table silently stops matching
+ * its header. A newline ends the *row* outright. Both appear in real extracted
+ * data (measurement ranges, wrapped addresses), so neither can be left raw.
+ *
+ * Backslashes are escaped first, and must be: escaping only the pipe would turn a
+ * value that already ends in a backslash (`a\` + `|`) into `a\\|`, where the pair
+ * renders as one literal backslash and the pipe goes back to being a delimiter —
+ * reintroducing the very bug for the one input most likely to be probing for it.
+ */
+const escMd = (cell: string): string =>
+    cell
+        .replace(/\\/g, '\\\\')
+        .replace(/\|/g, '\\|')
+        .replace(/\s*\r?\n\s*/g, ' ');
+
 export function toMarkdown(rows: string[][]): string {
     if (rows.length === 0) return '';
-    const [header, ...data] = rows;
+    // Escape before measuring: an escaped pipe is two characters wide in the
+    // source, so widths taken from the raw values would misalign every column
+    // after it.
+    const [header, ...data] = rows.map(row => row.map(escMd));
 
     const colCount = Math.max(header.length, ...data.map(r => r.length));
     const widths = Array.from({ length: colCount }, (_, i) =>

@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import type { ProvenanceCell } from '../extraction/types';
 import { parseCSV } from '../llama/promptUtils';
-import { toCsv, toHtml, toMarkdown, toPlainText, saveWithDialog, saveXlsxWithDialog } from './exportUtils';
+import { toCsvForExport, toHtml, toMarkdown, toPlainText, saveWithDialog, saveXlsxWithDialog } from './exportUtils';
 import type { SaveFormat } from './exportUtils';
 import { copyTextToClipboard } from '../../utils/clipboard';
 import Icon from '../../components/Icon';
@@ -54,7 +54,9 @@ interface BinaryFormatEntry {
 }
 
 const FORMAT_CONFIG: Record<ExportFormatKey, TextFormatEntry | BinaryFormatEntry> = {
-    csv:  { kind: 'text',   label: 'CSV',        icon: 'table_view',  serialize: toCsv,      saveFormat: { ext: 'csv',  label: 'CSV files',   filters: [{ name: 'CSV',   extensions: ['csv']  }] } },
+    // toCsvForExport, not toCsv: this file is opened by a spreadsheet, so
+    // formula-shaped cells from the source document are neutralized on the way out.
+    csv:  { kind: 'text',   label: 'CSV',        icon: 'table_view',  serialize: toCsvForExport, saveFormat: { ext: 'csv',  label: 'CSV files',   filters: [{ name: 'CSV',   extensions: ['csv']  }] } },
     xlsx: { kind: 'binary', label: 'Excel',      icon: 'table_chart', saveFormat: { ext: 'xlsx', label: 'Excel files', filters: [{ name: 'Excel', extensions: ['xlsx'] }] } },
     html: { kind: 'text',   label: 'HTML',       icon: 'code',        serialize: toHtml,     saveFormat: { ext: 'html', label: 'HTML files',  filters: [{ name: 'HTML', extensions: ['html'] }] } },
     md:   { kind: 'text',   label: 'Markdown',   icon: 'article',     serialize: toMarkdown, saveFormat: { ext: 'md',   label: 'Markdown files', filters: [{ name: 'Markdown', extensions: ['md']   }] } },

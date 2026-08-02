@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { toCsv, toHtml, toMarkdown, toPlainText, buildFileStem, saveWithDialog, saveXlsxWithDialog } from './exportUtils';
+import { toCsv, toCsvForExport, neutralizeFormula, toHtml, toMarkdown, toPlainText, buildFileStem, saveWithDialog, saveXlsxWithDialog } from './exportUtils';
 
 const { save } = vi.hoisted(() => ({ save: vi.fn() }));
 const { writeTextFile } = vi.hoisted(() => ({ writeTextFile: vi.fn() }));
@@ -32,6 +32,71 @@ describe('toCsv (RFC-4180 escaping)', () => {
 
     it('leaves a plain cell unquoted', () => {
         expect(toCsv([['plain']])).toBe('plain');
+    });
+});
+
+describe('neutralizeFormula (CSV injection)', () => {
+    // Values a scanned document could carry that a spreadsheet would execute.
+    it.each([
+        ['=cmd|\'/c calc\'!A1', "'=cmd|'/c calc'!A1"],
+        ['=SUM(A1:A9)', "'=SUM(A1:A9)"],
+        ['@SUM(1+1)*cmd', "'@SUM(1+1)*cmd"],
+        ['+cmd|\'/c calc\'!A0', "'+cmd|'/c calc'!A0"],
+        ['-1+cmd|\'/c calc\'!A0', "'-1+cmd|'/c calc'!A0"],
+        ['\tstill a formula', "'\tstill a formula"],
+    ])('neutralizes %j', (input, expected) => {
+        expect(neutralizeFormula(input)).toBe(expected);
+    });
+
+    // The reason this is narrower than the usual "escape every leading -+=@" rule:
+    // extracted tables are full of signed numbers, and prefixing them would turn
+    // every negative amount into text and break the sums the export exists for.
+    it.each([
+        '-42',
+        '+42',
+        '-1.5',
+        '-1,234.00',
+        '-42%',
+        '-$42',
+        '-1.5e3',
+        '+1.5E-10',
+        '1234',
+    ])('leaves the number %j alone', (input) => {
+        expect(neutralizeFormula(input)).toBe(input);
+    });
+
+    it.each(['plain', '', 'a=b', 'user@example.com', '(1,234)'])(
+        'leaves %j alone — nothing formula-shaped about it',
+        (input) => {
+            expect(neutralizeFormula(input)).toBe(input);
+        },
+    );
+});
+
+describe('toCsvForExport', () => {
+    it('neutralizes formula cells that toCsv passes straight through', () => {
+        const rows = [['Item', 'Total'], ['=cmd|\'/c calc\'!A1', '-42']];
+        expect(toCsv(rows)).toContain('=cmd');
+        expect(toCsvForExport(rows)).toContain("'=cmd");
+        // The negative number is data and survives untouched.
+        expect(toCsvForExport(rows)).toContain('-42');
+    });
+
+    it('quotes around the apostrophe, not the other way round', () => {
+        // The cell needs CSV quoting *and* neutralizing; the prefix has to end up
+        // inside the quotes or the spreadsheet sees a bare `=` again.
+        expect(toCsvForExport([['=a,b']])).toBe('"\'=a,b"');
+    });
+
+    it('is identical to toCsv when nothing is formula-shaped', () => {
+        const rows = [['Name', 'Age'], ['Al', '30']];
+        expect(toCsvForExport(rows)).toBe(toCsv(rows));
+    });
+
+    // toCsv is also what gets persisted and read back into the app's own grid, so
+    // it must stay byte-faithful — the guard belongs only on the export path.
+    it('leaves toCsv itself unguarded', () => {
+        expect(toCsv([['=SUM(A1)']])).toBe('=SUM(A1)');
     });
 });
 
@@ -82,6 +147,35 @@ describe('toMarkdown', () => {
 
     it('returns empty string for no rows', () => {
         expect(toMarkdown([])).toBe('');
+    });
+
+    // A raw `|` ends the cell early and shifts every column after it, so the table
+    // silently stops matching its header.
+    it('escapes a pipe inside a cell so the columns stay put', () => {
+        const md = toMarkdown([['A', 'B'], ['x|y', 'z']]).split('\n');
+        expect(md[2]).toContain('x\\|y');
+        // Still exactly two columns: three delimiters, none of them the escaped one.
+        expect(md[2].replace(/\\\|/g, '')).toMatch(/^\|[^|]*\|[^|]*\|$/);
+    });
+
+    it('escapes backslashes before pipes, so a trailing backslash cannot re-open the cell', () => {
+        // Escaping only the pipe would emit `a\\|b`: the pair renders as one literal
+        // backslash and the pipe becomes a delimiter again.
+        const md = toMarkdown([['A', 'B'], ['a\\', 'b']]).split('\n');
+        expect(md[2]).toContain('a\\\\');
+        expect(md[2].replace(/\\\\/g, '')).toMatch(/^\|[^|]*\|[^|]*\|$/);
+    });
+
+    it('folds a newline into a space rather than ending the row', () => {
+        const md = toMarkdown([['A'], ['line1\nline2']]).split('\n');
+        expect(md).toHaveLength(3);
+        expect(md[2]).toContain('line1 line2');
+    });
+
+    it('pads from the escaped width, so an escaped cell still aligns', () => {
+        const md = toMarkdown([['Head'], ['a|b']]).split('\n');
+        // 'a\|b' is 4 source characters; the header is 4 wide, so no extra padding.
+        expect(md[2]).toBe('| a\\|b |');
     });
 });
 

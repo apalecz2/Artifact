@@ -6,6 +6,7 @@
 
 - option to collapse pannels in session
 - note on poor quality extractions -- "try fixing the OCR on the left for better results"
+- text overlaps on smaller screens in the formatted table view
 
 
 ### Build / Packaging
