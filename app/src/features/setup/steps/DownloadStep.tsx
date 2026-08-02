@@ -125,6 +125,14 @@ export default function DownloadStep({ config, onComplete, onError, onCancel }: 
                 // this download binds to whatever the current generation is.
                 cancelledRef.current = false;
 
+                // Record which build this install is for *before* fetching a byte of
+                // it. The backend is what tells `check_setup_complete` whether the
+                // CUDA runtime belongs to this install; CompleteStep also writes it,
+                // but that only runs on success — leaving it missing for exactly the
+                // case the check exists for, an install that failed partway through.
+                await invoke('persist_backend', { backend: config.backend })
+                    .catch(() => { /* non-fatal: the check falls back to not requiring cudart */ });
+
                 const entries = await invoke<AssetManifestEntry[]>('get_asset_manifest', {
                     backend: config.backend,
                 });

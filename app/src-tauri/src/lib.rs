@@ -70,6 +70,13 @@ pub fn run() {
                 setup::sweep_stale_partials(&data_dir);
             }
 
+            // Reclaim OCR scratch directories a crashed run never got to delete.
+            // Age-gated, so it cannot touch a run still in flight in another
+            // instance of the app (there is no single-instance lock).
+            if let Ok(cache_dir) = app.path().app_cache_dir() {
+                ocr::sweep_stale_ocr_work_dirs(&cache_dir);
+            }
+
             // On first launch there is no saved window state for the window-state
             // plugin to restore, so open at the size the UI was designed for,
             // shrinking only as far as this monitor requires. Subsequent launches

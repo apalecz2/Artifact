@@ -12,7 +12,7 @@ use std::{
         atomic::{AtomicU64, Ordering},
         Arc,
     },
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use serde::{Deserialize, Serialize};
@@ -158,6 +158,120 @@ fn classify_extension(ext: &str) -> InputKind {
     }
 }
 
+/// Name prefix for the per-run scratch directories under `<cache>/ocr/`. The sweep
+/// matches on it, so only directories this module created are ever reclaimed.
+const OCR_RUN_DIR_PREFIX: &str = "run-";
+
+/// How long an `ocr/run-*` directory may sit before [`sweep_stale_ocr_work_dirs`]
+/// treats it as the debris of a crashed run. Generous on purpose: the app has no
+/// single-instance lock, so a second instance's startup sweep must never be able
+/// to delete a *live* run's scratch dir out from under it. No document takes a day
+/// to OCR; anything that old belongs to a process that is gone.
+const OCR_RUN_RETENTION: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// Per-process counter that makes each run's scratch directory distinct.
+static OCR_RUN_SEQ: AtomicU64 = AtomicU64::new(0);
+
+/// Name the scratch directory for one `process_document` run.
+///
+/// The preprocessed OCR copy inside is still named after its source file's stem,
+/// which for an uploaded image is the *user's* filename — so the working path used
+/// to be a pure function of that name and nothing else. Two runs over the same
+/// filename then shared one path and deleted each other's file mid-OCR, which
+/// ordinary single-user flows reach without any name coincidence: cancel-then-retry
+/// (a cancel is fire-and-forget and an image OCR can't be interrupted, so the
+/// abandoned run is still working when the retry starts), leaving and re-entering a
+/// session while it processes, or the same file attached to two sessions. Isolating
+/// each run in its own directory removes the shared path entirely.
+///
+/// All three components are needed: `seq` separates runs within a process, `pid`
+/// separates concurrent app instances (there is no single-instance lock), and the
+/// timestamp separates a reused pid after a restart. Pure so the format and its
+/// uniqueness are testable without a Tauri app handle.
+fn ocr_run_dir_name(pid: u32, seq: u64, timestamp_ms: u128) -> String {
+    format!("{OCR_RUN_DIR_PREFIX}{pid}-{seq}-{timestamp_ms}")
+}
+
+/// Owns one run's scratch directory and removes it when the run ends.
+///
+/// `ocr_image_to_page` already deletes each preprocessed copy as soon as its page is
+/// done, so a long PDF never holds more than one at a time — but that delete is
+/// best-effort and does fail (on Windows, deleting a file another process still has
+/// open raises a sharing violation). Dropping the whole directory is the backstop,
+/// and being a `Drop` impl it covers the early `?` returns scattered through
+/// `process_document_blocking` — a missing pdfium, a cancel between pages, an
+/// unsupported extension — as well as a panic.
+struct OcrWorkDir {
+    path: PathBuf,
+}
+
+impl OcrWorkDir {
+    fn create(root: &Path, name: &str) -> Result<Self, String> {
+        let path = root.join(name);
+        fs::create_dir_all(&path)
+            .map_err(|error| format!("failed to create ocr work directory: {error}"))?;
+        Ok(OcrWorkDir { path })
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for OcrWorkDir {
+    fn drop(&mut self) {
+        // Best-effort: a file an AV scanner or a lingering tesseract still holds open
+        // keeps the directory alive, and the startup sweep reclaims it later.
+        let _ = fs::remove_dir_all(&self.path);
+    }
+}
+
+/// Garbage-collect OCR scratch left behind when a run's cleanup never got to happen
+/// (a crash, a kill, a locked file). Called once at startup.
+///
+/// Only ever touches entries *inside* `<cache>/ocr/`, never that directory or the
+/// cache root — on Windows the cache root is `%LOCALAPPDATA%\<identifier>`, which
+/// holds the live WebView2 profile (see `reset.rs`).
+///
+/// Also clears the flat `*_ocr.png` files written by versions before the per-run
+/// directories existed; those were overwritten in place rather than accumulating, so
+/// an upgrading user has at most a handful, but nothing else will ever remove them.
+pub fn sweep_stale_ocr_work_dirs(cache_dir: &Path) {
+    let root = cache_dir.join("ocr");
+    let Ok(entries) = fs::read_dir(&root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        let is_run_dir = name.starts_with(OCR_RUN_DIR_PREFIX);
+        let is_legacy_file = name.ends_with("_ocr.png");
+        if !is_run_dir && !is_legacy_file {
+            continue;
+        }
+        let stale = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .map(|modified| {
+                modified
+                    .elapsed()
+                    .map(|age| age > OCR_RUN_RETENTION)
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false);
+        if !stale {
+            continue;
+        }
+        if path.is_dir() {
+            let _ = fs::remove_dir_all(&path);
+        } else {
+            let _ = fs::remove_file(&path);
+        }
+    }
+}
+
 /// Produce a preprocessed copy of `source` for Tesseract.
 /// Returns (preprocessed_path, scale_factor). Callers divide OCR bounding boxes by
 /// scale_factor to map back to original-image coordinates.
@@ -165,6 +279,11 @@ fn classify_extension(ext: &str) -> InputKind {
 /// Pipeline: grayscale ->  Lanczos upscale (if narrow side < threshold) -> save.
 /// Tesseract binarizes internally, which handles thin antialiased screen fonts
 /// better than a hard global threshold on native-resolution pixels.
+///
+/// The output name is only unique *within* `out_dir` — it is the source file's stem,
+/// which on the image path is whatever the user named their file. Callers must pass a
+/// scratch directory private to one run ([`OcrWorkDir`]); a shared one lets two runs
+/// over the same filename overwrite and delete each other's copy.
 fn preprocess_for_ocr(
     source: &Path,
     out_dir: &Path,
@@ -361,21 +480,33 @@ fn process_document_blocking(
     std::fs::create_dir_all(&session_dir)
         .map_err(|error| format!("failed to create output directory: {error}"))?;
 
-    // Scratch space for preprocessed OCR copies. These are transient working files
-    // (deleted right after each page is OCR'd), so they live in the app cache dir
-    // rather than the persistent sessions/ folder.
-    let ocr_work_dir = app_handle
-        .path()
-        .app_cache_dir()
-        .map_err(|error| format!("failed to resolve cache directory: {error}"))?
-        .join("ocr");
-    std::fs::create_dir_all(&ocr_work_dir)
-        .map_err(|error| format!("failed to create ocr work directory: {error}"))?;
-
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis();
+
+    // Scratch space for preprocessed OCR copies. These are transient working files
+    // (deleted right after each page is OCR'd), so they live in the app cache dir
+    // rather than the persistent sessions/ folder.
+    //
+    // Private to this run: nothing serializes `process_document`, so a second run over
+    // the same source file can be in flight at the same time, and the copies are named
+    // after that file (see `ocr_run_dir_name`). The guard removes the directory on
+    // every exit path.
+    let ocr_work_root = app_handle
+        .path()
+        .app_cache_dir()
+        .map_err(|error| format!("failed to resolve cache directory: {error}"))?
+        .join("ocr");
+    let ocr_work = OcrWorkDir::create(
+        &ocr_work_root,
+        &ocr_run_dir_name(
+            std::process::id(),
+            OCR_RUN_SEQ.fetch_add(1, Ordering::Relaxed),
+            timestamp,
+        ),
+    )?;
+    let ocr_work_dir = ocr_work.path();
 
     let mut pages: Vec<DocumentPageResult> = Vec::new();
 
@@ -444,7 +575,7 @@ fn process_document_blocking(
                     &generated_path,
                     natural_width,
                     natural_height,
-                    &ocr_work_dir,
+                    ocr_work_dir,
                     false, // already high-res from pdfium; do not upscale
                 )
             };
@@ -487,7 +618,7 @@ fn process_document_blocking(
             source_path,
             natural_width,
             natural_height,
-            &ocr_work_dir,
+            ocr_work_dir,
             true, // arbitrary resolution; upscale if small
         )?);
     } else {
@@ -614,5 +745,91 @@ mod tests {
         // Idempotent: a second call doesn't error or change it.
         ensure_tesseract_tsv_config(dir.path());
         assert!(tsv.exists());
+    }
+
+    #[test]
+    fn ocr_run_dir_name_is_unique_per_run_instance_and_launch() {
+        let a = ocr_run_dir_name(1234, 0, 1_700_000_000_000);
+        assert_eq!(a, "run-1234-0-1700000000000");
+        assert!(a.starts_with(OCR_RUN_DIR_PREFIX), "the sweep matches on it");
+
+        // Same process, next run.
+        assert_ne!(a, ocr_run_dir_name(1234, 1, 1_700_000_000_000));
+        // Concurrent second app instance starting its first run in the same ms.
+        assert_ne!(a, ocr_run_dir_name(5678, 0, 1_700_000_000_000));
+        // Same pid reused after a restart, counter back at zero.
+        assert_ne!(a, ocr_run_dir_name(1234, 0, 1_700_000_009_999));
+    }
+
+    #[test]
+    fn ocr_work_dir_removes_itself_and_its_contents_on_drop() {
+        let root = tempfile::tempdir().unwrap();
+        let path;
+        {
+            let work = OcrWorkDir::create(root.path(), "run-1-0-1").unwrap();
+            path = work.path().to_path_buf();
+            assert!(path.is_dir());
+            // A page whose own delete failed (a Windows sharing violation, say) must
+            // still go with the directory.
+            fs::write(path.join("scan_ocr.png"), b"leftover").unwrap();
+        }
+        assert!(!path.exists(), "the scratch dir must not outlive the run");
+        assert!(root.path().is_dir(), "the shared ocr/ root must survive");
+    }
+
+    #[test]
+    fn two_runs_over_the_same_filename_get_separate_scratch_dirs() {
+        // The regression this guards: both runs preprocess a file whose stem is the
+        // user's, so before per-run dirs they wrote — and deleted — one shared path.
+        let root = tempfile::tempdir().unwrap();
+        let a = OcrWorkDir::create(root.path(), &ocr_run_dir_name(1, 0, 1)).unwrap();
+        let b = OcrWorkDir::create(root.path(), &ocr_run_dir_name(1, 1, 1)).unwrap();
+
+        let a_copy = a.path().join("scan_ocr.png");
+        let b_copy = b.path().join("scan_ocr.png");
+        fs::write(&a_copy, b"a").unwrap();
+        fs::write(&b_copy, b"b").unwrap();
+        assert_ne!(a_copy, b_copy);
+
+        // Finishing the first run leaves the second run's working file untouched.
+        drop(a);
+        assert!(!a_copy.exists());
+        assert_eq!(fs::read(&b_copy).unwrap(), b"b");
+    }
+
+    #[test]
+    fn sweep_stale_ocr_work_dirs_keeps_live_runs_and_reclaims_crashed_ones() {
+        let cache = tempfile::tempdir().unwrap();
+        let ocr = cache.path().join("ocr");
+        fs::create_dir_all(&ocr).unwrap();
+
+        let live = ocr.join("run-1-0-1");
+        let crashed = ocr.join("run-2-0-2");
+        let legacy = ocr.join("scan_ocr.png");
+        let unrelated = ocr.join("keep.txt");
+        fs::create_dir_all(&live).unwrap();
+        fs::create_dir_all(&crashed).unwrap();
+        fs::write(crashed.join("page_ocr.png"), b"debris").unwrap();
+        fs::write(&legacy, b"pre-upgrade").unwrap();
+        fs::write(&unrelated, b"not ours").unwrap();
+
+        let two_days_ago = SystemTime::now() - Duration::from_secs(2 * 24 * 60 * 60);
+        let backdated = filetime::FileTime::from_system_time(two_days_ago);
+        filetime::set_file_mtime(&crashed, backdated).unwrap();
+        filetime::set_file_mtime(&legacy, backdated).unwrap();
+
+        sweep_stale_ocr_work_dirs(cache.path());
+
+        assert!(
+            live.is_dir(),
+            "a recent run dir may belong to a job still in flight in another instance"
+        );
+        assert!(!crashed.exists(), "an abandoned run dir must be reclaimed");
+        assert!(
+            !legacy.exists(),
+            "pre-upgrade flat copies must be reclaimed"
+        );
+        assert!(unrelated.exists(), "unrecognized entries must be untouched");
+        assert!(ocr.is_dir(), "the ocr/ root itself must never be removed");
     }
 }

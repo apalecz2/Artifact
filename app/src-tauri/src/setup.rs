@@ -74,11 +74,25 @@ fn asset_installed(asset_id: &str, data_dir: &Path) -> bool {
 // check_setup_complete
 // ---------------------------------------------------------------------------
 
-#[tauri::command]
-pub fn check_setup_complete(app_handle: tauri::AppHandle) -> Result<bool, String> {
-    let data_dir = resolve_data_dir(&app_handle)?;
-    // cudart is intentionally excluded: it's only needed for the CUDA backend,
-    // so requiring it would wrongly block CPU/Metal users.
+/// Whether the Windows CUDA runtime DLLs (`cudart`) are part of an install built
+/// for `backend`.
+///
+/// The asset manifest and the completeness check are two views of one decision, and
+/// they must not be able to disagree — when they did, a CUDA install whose 391 MB
+/// `cudart` download failed was reported *complete* on the next launch, skipped the
+/// wizard, and then died inside `llama-server` with a missing-DLL error the user had
+/// no way to act on. Both now derive from this.
+fn includes_cudart(backend: &str) -> bool {
+    cfg!(target_os = "windows") && backend == "cuda"
+}
+
+/// The assets that must be present before the app can run, for an install built for
+/// `backend` (`None` when no backend has been recorded yet).
+///
+/// Pure so the rules are testable without an `AppHandle`. `cudart` cannot go in the
+/// unconditional list — that would block every CPU/Metal user on a file they never
+/// download — which is exactly why it was omitted entirely, and why the gap existed.
+fn required_assets(backend: Option<&str>) -> Vec<&'static str> {
     let mut required = vec!["llama_server", "tesseract", "mmproj_gguf", "model_gguf"];
     // pdfium is required wherever we ship one (Windows + macOS) — PDF rendering
     // depends on it. Gated on pdfium_spec so platforms without an asset (Linux)
@@ -86,7 +100,23 @@ pub fn check_setup_complete(app_handle: tauri::AppHandle) -> Result<bool, String
     if pdfium_spec().is_some() {
         required.push("pdfium");
     }
-    Ok(required.iter().all(|id| asset_installed(id, &data_dir)))
+    if backend.is_some_and(includes_cudart) {
+        required.push("cudart");
+    }
+    required
+}
+
+#[tauri::command]
+pub fn check_setup_complete(app_handle: tauri::AppHandle) -> Result<bool, String> {
+    let data_dir = resolve_data_dir(&app_handle)?;
+    // The persisted backend describes the build actually sitting in `binaries/`: it
+    // is written when the install commits to downloading that build, not when the
+    // install succeeds — an install that failed partway is precisely the case this
+    // check exists for, and a value written only on success would be missing there.
+    let backend = read_persisted_backend(&data_dir);
+    Ok(required_assets(backend.as_deref())
+        .iter()
+        .all(|id| asset_installed(id, &data_dir)))
 }
 
 // ---------------------------------------------------------------------------
@@ -1004,8 +1034,9 @@ pub fn get_asset_manifest(
 
     // Windows CUDA builds need the CUDA runtime DLLs, which llama.cpp ships as a
     // separate zip. Its DLLs sit flat at the root, so a plain extract into the
-    // binaries dir places them alongside llama-server.exe.
-    let cudart = (cfg!(target_os = "windows") && backend == "cuda").then(|| AssetManifestEntry {
+    // binaries dir places them alongside llama-server.exe. Gated by the same
+    // predicate `check_setup_complete` uses, so the two cannot drift.
+    let cudart = includes_cudart(&backend).then(|| AssetManifestEntry {
         asset_id: "cudart".into(),
         label: "CUDA runtime libraries".into(),
         size_bytes: 391_443_627, // actual R2 Content-Length (verified 2026-06-16)
@@ -1251,6 +1282,96 @@ mod tests {
         fs::set_permissions(dest.join("tool"), fs::Permissions::from_mode(0o555)).unwrap();
         copy_dir_contents(&src, &dest).unwrap();
         assert_eq!(fs::read(dest.join("tool")).unwrap(), b"v2");
+    }
+
+    #[test]
+    fn includes_cudart_only_for_windows_cuda() {
+        if cfg!(target_os = "windows") {
+            assert!(includes_cudart("cuda"));
+        } else {
+            // The cudart asset is Windows-only; a macOS "cuda" value must not
+            // demand a file that is never in the manifest there.
+            assert!(!includes_cudart("cuda"));
+        }
+        assert!(!includes_cudart("cpu"));
+        assert!(!includes_cudart("metal"));
+        assert!(!includes_cudart(""));
+    }
+
+    #[test]
+    fn required_assets_always_covers_the_core_four() {
+        for backend in [None, Some("cpu"), Some("cuda"), Some("metal")] {
+            let required = required_assets(backend);
+            for id in ["llama_server", "tesseract", "mmproj_gguf", "model_gguf"] {
+                assert!(required.contains(&id), "{id} missing for {backend:?}");
+            }
+            // pdfium tracks whether we ship one for this platform at all.
+            assert_eq!(required.contains(&"pdfium"), pdfium_spec().is_some());
+        }
+    }
+
+    /// The gap this closes: `cudart` used to be omitted unconditionally, so a CUDA
+    /// install whose cudart download failed passed `check_setup_complete`, skipped
+    /// the wizard, and then could not start llama-server.
+    #[test]
+    fn required_assets_demands_cudart_for_a_cuda_install() {
+        let required = required_assets(Some("cuda"));
+        assert_eq!(
+            required.contains(&"cudart"),
+            cfg!(target_os = "windows"),
+            "cudart is required exactly where it is part of the install"
+        );
+    }
+
+    #[test]
+    fn required_assets_never_demands_cudart_of_cpu_metal_or_unknown() {
+        // The original reason cudart was left out: requiring it unconditionally
+        // would block every user who never downloads it.
+        for backend in [None, Some("cpu"), Some("metal")] {
+            assert!(
+                !required_assets(backend).contains(&"cudart"),
+                "cudart must not be required for {backend:?}",
+            );
+        }
+    }
+
+    /// End-to-end over a temp AppData: a CUDA install missing only cudart must not
+    /// read as complete, while the same tree does read as complete for cpu.
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn a_cuda_install_missing_cudart_is_not_complete() {
+        let dir = tempfile::tempdir().unwrap();
+        let binaries = dir.path().join("binaries");
+        let models = dir.path().join("models");
+        let tess = dir.path().join("tesseract").join("tessdata");
+        fs::create_dir_all(&binaries).unwrap();
+        fs::create_dir_all(&models).unwrap();
+        fs::create_dir_all(&tess).unwrap();
+        fs::write(binaries.join(llama_exe_name()), b"x").unwrap();
+        fs::write(binaries.join(pdfium_lib_name()), b"x").unwrap();
+        fs::write(
+            dir.path().join("tesseract").join(tesseract_exe_name()),
+            b"x",
+        )
+        .unwrap();
+        fs::write(tess.join("eng.traineddata"), b"x").unwrap();
+        fs::write(models.join(MODEL_FILENAME), b"x").unwrap();
+        fs::write(models.join(MMPROJ_FILENAME), b"x").unwrap();
+
+        let complete = |backend: Option<&str>| {
+            required_assets(backend)
+                .iter()
+                .all(|id| asset_installed(id, dir.path()))
+        };
+
+        assert!(!complete(Some("cuda")), "cudart is missing — not complete");
+        assert!(
+            complete(Some("cpu")),
+            "the same tree is a complete cpu install"
+        );
+
+        fs::write(binaries.join("cudart64_12.dll"), b"x").unwrap();
+        assert!(complete(Some("cuda")), "with cudart present it completes");
     }
 
     #[test]
