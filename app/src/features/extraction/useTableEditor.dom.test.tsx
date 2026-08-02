@@ -21,6 +21,9 @@ function harness(initial: Grid) {
         rows: initial,
         selected: null as { rowIndex: number; colIndex: number } | null,
         zooms: 0,
+        // Session's `${id}:${page}:${tableGeneration}` — the generation moves when
+        // the table is replaced wholesale rather than edited.
+        resetKey: 'session:0:0',
     };
     const view = renderHook(() => useTableEditor({
         rows: state.rows,
@@ -30,7 +33,7 @@ function harness(initial: Grid) {
             state.selected = { rowIndex: cell.rowIndex, colIndex: cell.colIndex };
             if (opts?.autoZoom) state.zooms += 1;
         },
-        resetKey: 'session:0',
+        resetKey: state.resetKey,
     }));
     // Every command mutates `state` inside an act(); re-render so the hook sees
     // the grid and anchor the session now holds.
@@ -235,6 +238,32 @@ describe('useTableEditor', () => {
             expect(h.editor().canUndo).toBe(false);
             h.run(() => h.editor().undo());
             expect(values(h.state.rows)).toEqual([['a']]);
+        });
+
+        /**
+         * A re-extraction replaces the grid wholesale. The stack is over the *old*
+         * grid, so an undo taken afterwards writes the pre-extraction table back
+         * over the new one — and persists it, since every commit goes through the
+         * session's single write path. The key used to be `session:page`, which a
+         * re-extraction leaves untouched; Session now bumps a generation with it
+         * whenever it replaces the table rather than edits it.
+         */
+        it('forgets the old table when the grid is replaced, not edited', () => {
+            const h = harness(gridOf([['h'], ['a']]));
+            h.run(() => h.editor().pointerDown(h.state.rows[1][0], false));
+            h.run(() => h.editor().commands.deleteSelectedRows());
+            expect(h.editor().canUndo).toBe(true);
+
+            // What Session does on a re-extract: a different grid, a new generation.
+            h.run(() => {
+                h.state.rows = gridOf([['fresh'], ['rows']]);
+                h.state.resetKey = 'session:0:1';
+            });
+
+            expect(h.editor().canUndo).toBe(false);
+            expect(h.editor().canRedo).toBe(false);
+            h.run(() => h.editor().undo());
+            expect(values(h.state.rows)).toEqual([['fresh'], ['rows']]);
         });
     });
 

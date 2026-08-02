@@ -92,7 +92,7 @@ describe('useSetupCheck', () => {
         const { result } = renderHook(() => useSetupCheck());
         await waitFor(() => expect(result.current.isComplete).toBe(true));
         expect(readSetting('modelPath')).toBe('/models/q.gguf');
-        expect(readSetting('llamaServerPath')).toBe('/bin/llama');
+        expect(readSetting('mmprojPath')).toBe('/models/mmproj.gguf');
         expect(hasSetting('hardwareBackend')).toBe(true);
         expect(readSetting('hardwareBackend')).toBe('metal');
     });

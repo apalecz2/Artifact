@@ -30,7 +30,6 @@ describe('CompleteStep', () => {
         render(<CompleteStep backend="cuda" onLaunch={onLaunch} />);
 
         await waitFor(() => expect(readSetting('modelPath')).toBe('/models/q.gguf'));
-        expect(readSetting('llamaServerPath')).toBe('/bin/llama');
         expect(readSetting('mmprojPath')).toBe('/models/mm.gguf');
         expect(readSetting('hardwareBackend')).toBe('cuda');
         expect(invoke).toHaveBeenCalledWith('persist_backend', { backend: 'cuda' });

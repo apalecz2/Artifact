@@ -3,7 +3,7 @@ import type { ProvenanceCell } from '../extraction/types';
 import { parseCSV } from '../llama/promptUtils';
 import { toCsvForExport, toHtml, toMarkdown, toPlainText, saveWithDialog, saveXlsxWithDialog } from './exportUtils';
 import type { SaveFormat } from './exportUtils';
-import { copyTextToClipboard } from '../../utils/clipboard';
+import { copyTableToClipboard } from '../../utils/clipboard';
 import Icon from '../../components/Icon';
 
 interface ExportMenuProps {
@@ -129,15 +129,29 @@ export function ExportMenu({ provenanceCells, savedCsv, fileStem, disabled, open
         }
     };
 
+    /**
+     * Copy the table the way the card's own Copy button does: TSV as text/plain
+     * plus an HTML `<table>`, so it pastes as a grid into Excel or Sheets and as
+     * tab-separated text everywhere else.
+     *
+     * It used to write Markdown, which put two adjacent affordances a few pixels
+     * apart on the same table with two different clipboard formats — and made the
+     * one inside the *Export* menu the one that pastes into a spreadsheet as a
+     * column of pipe characters. Markdown is still an export format; it just
+     * isn't what "copy" silently means any more.
+     */
     const handleCopy = async () => {
         setOpen(false);
         if (!hasData) return;
-        // `copyTextToClipboard` reports rather than throws, and brings the
-        // `execCommand` fallback for webviews that withhold the async clipboard API.
-        const ok = await copyTextToClipboard(toMarkdown(rows));
-        setFeedback(ok
-            ? { kind: 'copied' }
-            : { kind: 'error', message: 'Couldn’t copy the table to the clipboard.' });
+        try {
+            await copyTableToClipboard(rows);
+            setFeedback({ kind: 'copied' });
+        } catch (error) {
+            setFeedback({
+                kind: 'error',
+                message: `Couldn’t copy the table to the clipboard. ${describeError(error)}`,
+            });
+        }
     };
 
     return (

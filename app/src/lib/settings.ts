@@ -7,12 +7,16 @@ export type Theme = (typeof THEMES)[number];
 export const HARDWARE_BACKENDS = ['cpu', 'cuda', 'rocm', 'metal'] as const;
 export type HardwareBackend = (typeof HARDWARE_BACKENDS)[number];
 
+// No `llamaServerPath`: `llama.rs` resolves the binary from the canonical AppData
+// layout itself (`resolve_llama_server_path`) and never consults a setting, so a
+// stored path could only ever disagree with the one actually launched. The model
+// paths *are* read — llamaClient passes them to the server, and Settings lets
+// them be overridden — which is why those stay.
 interface SettingsSchema {
     theme: Theme;
     modelPath: string;
     mmprojPath: string;
     ocrLanguage: string;
-    llamaServerPath: string;
     hardwareBackend: HardwareBackend;
 }
 
@@ -22,7 +26,6 @@ const STORAGE_KEYS: Record<keyof SettingsSchema, string> = {
     modelPath: 'model_path',
     mmprojPath: 'mmproj_path',
     ocrLanguage: 'ocr_language',
-    llamaServerPath: 'llama_server_path',
     hardwareBackend: 'hardware_backend',
 };
 
@@ -31,7 +34,6 @@ const DEFAULTS: SettingsSchema = {
     modelPath: '',
     mmprojPath: '',
     ocrLanguage: 'eng',
-    llamaServerPath: '',
     hardwareBackend: 'cpu',
 };
 

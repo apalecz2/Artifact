@@ -1,6 +1,7 @@
-import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import DocumentViewer from './DocumentViewer';
+import { maxZoomFor } from './documentZoom';
 import { ocrWord, resetFixtureIds } from '../test/fixtures';
 
 // Word with a non-trivial box, matching this spec's earlier fixed-box usage.
@@ -34,7 +35,22 @@ beforeAll(() => {
     }));
 });
 
-function renderViewer(props: Partial<React.ComponentProps<typeof DocumentViewer>> = {}) {
+/**
+ * jsdom reports every element as 0x0, so the viewer's fit math (which needs a
+ * live pane size) never engages. Give the pane a size for the tests that care.
+ * Applied to the prototype because the measurement happens in a mount effect,
+ * before `render` has handed back anything to set it on.
+ */
+function stubPaneSize(width: number, height: number) {
+    for (const [prop, value] of [['clientWidth', width], ['clientHeight', height]] as const) {
+        Object.defineProperty(HTMLElement.prototype, prop, { value, configurable: true });
+    }
+}
+
+function renderViewer(
+    props: Partial<React.ComponentProps<typeof DocumentViewer>> = {},
+    natural = { width: 800, height: 600 },
+) {
     const onAddWord = vi.fn();
     const onWordClick = vi.fn();
     const onEditRequest = vi.fn();
@@ -59,8 +75,8 @@ function renderViewer(props: Partial<React.ComponentProps<typeof DocumentViewer>
     );
     // The SVG (and word rects) only render once the image reports its natural size.
     const img = utils.container.querySelector('img')!;
-    Object.defineProperty(img, 'naturalWidth', { value: 800, configurable: true });
-    Object.defineProperty(img, 'naturalHeight', { value: 600, configurable: true });
+    Object.defineProperty(img, 'naturalWidth', { value: natural.width, configurable: true });
+    Object.defineProperty(img, 'naturalHeight', { value: natural.height, configurable: true });
     fireEvent.load(img);
     return { ...utils, onAddWord, onWordClick, onEditRequest, onDeleteRequest, setHighlightedWordId, words };
 }
@@ -126,5 +142,53 @@ describe('DocumentViewer', () => {
         });
         // words + 1 provenance highlight rect
         expect(container.querySelectorAll('svg rect').length).toBe(3);
+    });
+});
+
+describe('DocumentViewer zoom ceiling', () => {
+    afterEach(() => {
+        for (const prop of ['clientWidth', 'clientHeight']) {
+            Reflect.deleteProperty(HTMLElement.prototype, prop);
+        }
+    });
+
+    /** A full-page scan in a split pane: 2000px of render, ~500px to show it in. */
+    const renderScan = (props: Partial<React.ComponentProps<typeof DocumentViewer>> = {}) => {
+        stubPaneSize(500, 500);
+        return renderViewer(props, { width: 2000, height: 2600 });
+    };
+
+    it('reports the fit scale so the toolbar can derive the ceiling and the readout', () => {
+        const onFitScaleChange = vi.fn();
+        renderScan({ onFitScaleChange });
+
+        const fitScale = onFitScaleChange.mock.calls.at(-1)?.[0] as number;
+        // (500 - 2*16) / 2600 — height-bound for a portrait page.
+        expect(fitScale).toBeCloseTo(468 / 2600, 10);
+        // The point of reporting it: the ceiling it implies is well past the old
+        // fixed 2, and lands exactly on the source resolution.
+        expect(maxZoomFor(fitScale)).toBeGreaterThan(5);
+        expect(maxZoomFor(fitScale) * fitScale).toBeCloseTo(1, 10);
+    });
+
+    it('renders past the old fixed ceiling of 2, up to 1:1', () => {
+        const fitScale = 468 / 2600;
+        const { container } = renderScan({ zoom: maxZoomFor(fitScale) });
+
+        // The transformed wrapper carries the composed scale; at the ceiling the
+        // image is drawn at its natural size, which is the whole fix.
+        const wrapper = container.querySelector('[style*="translate"]') as HTMLElement;
+        const rendered = Number(/scale\(([\d.]+)\)/.exec(wrapper.style.transform)?.[1]);
+        expect(rendered).toBeCloseTo(1, 10);
+    });
+
+    it('pulls a zoom above the ceiling back down instead of rendering it clamped', () => {
+        // The ceiling moves with the pane (divider drag, window resize), so a
+        // zoom can outlive the fit that allowed it. Left alone, the toolbar would
+        // keep showing — and stepping from — a value the viewer refuses to honour.
+        const onZoomChange = vi.fn();
+        renderScan({ zoom: 50, onZoomChange });
+
+        expect(onZoomChange).toHaveBeenCalledWith(maxZoomFor(468 / 2600));
     });
 });

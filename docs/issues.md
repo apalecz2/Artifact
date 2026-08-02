@@ -38,6 +38,9 @@
 
 ## Backlog
 
+- long pdf documents are all ocr or nothing, no handling for vector pdfs that don't need ocr (? still run it to verify?)
+   - add options to select the table first out of the document etc
+
 - Right side of session as single page, chat menu type interface with the raw output and table pinned to the top
   - this shows the history of extraction, if the user did any reextractions to show the old ones in a chronological ordering
   - then also their chat messages to make edits, with the table before and after

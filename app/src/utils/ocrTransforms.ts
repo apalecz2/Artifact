@@ -57,14 +57,75 @@ export const groupWordsIntoLines = (words: OcrWord[], imageHeight: number): OcrW
 };
 
 /**
+ * The column starts a single line implies: a gap wider than `columnGap` between
+ * one word's right edge and the next word's left edge opens a new column, while
+ * smaller gaps keep a multi-word heading ("Course Number") in one column.
+ */
+const columnAnchorsOf = (line: OcrWord[], columnGap: number): number[] => {
+    const anchors: number[] = [];
+    let prevRight = -Infinity;
+    for (const w of line) {
+        if (w.box_coords.left - prevRight > columnGap) {
+            anchors.push(w.box_coords.left);
+        }
+        prevRight = w.box_coords.left + w.box_coords.width;
+    }
+    return anchors;
+};
+
+/**
+ * Pick the line whose column starts best describe the whole page.
+ *
+ * The anchor line used to be `lineGroups[0]` outright, which assumed the first
+ * visual line is the header row. Scanned documents routinely lead with a title,
+ * a date or a page number: a single centred word yields exactly one anchor, and
+ * every row of the prompt text then collapses into one column — silently
+ * degrading the Stage 1 prompt for a whole class of real inputs, with no signal
+ * that it happened.
+ *
+ * Rather than special-casing a title, this leans on the same property the
+ * pin-to-one-line design already rests on: *real columns are vertically
+ * consistent*. A candidate's anchor is "corroborated" when some other line also
+ * starts a word there, so a line is scored by how many of its column starts the
+ * rest of the page agrees with. A title's lone anchor scores 1 at best; the
+ * header of a four-column table scores 4. Ties go to the earliest line, which
+ * keeps the header winning over identically-structured body rows and leaves
+ * well-formed documents rendering exactly as before.
+ *
+ * Corroboration (not just "most columns") is what stops a noisy line — an
+ * over-segmented word, speckle read as characters — from being chosen for
+ * having the most gaps in it.
+ */
+const chooseAnchorLine = (lineGroups: OcrWord[][], columnGap: number, tolerance: number): OcrWord[] => {
+    let best = lineGroups[0];
+    let bestScore = -1;
+
+    for (const candidate of lineGroups) {
+        const anchors = columnAnchorsOf(candidate, columnGap);
+        const score = anchors.filter(anchor =>
+            lineGroups.some(other =>
+                other !== candidate &&
+                other.some(w => Math.abs(w.box_coords.left - anchor) <= tolerance),
+            ),
+        ).length;
+        if (score > bestScore) {
+            best = candidate;
+            bestScore = score;
+        }
+    }
+    return best;
+};
+
+/**
  * Rebuild spatially-accurate text from the structured words array.
  *
- * Column boundaries are derived once from the header line (first row) and every
- * row is snapped to those columns. Real columns are vertically consistent across
- * rows, whereas a wide cell holding left- and right-justified content is not — so
- * pinning each row to the header's columns prevents that within-cell gap from
- * being mistaken for a column break (which previously spawned a phantom, unnamed
- * trailing column). Within a column, words are joined with a single space.
+ * Column boundaries are derived once from a single representative line (see
+ * `chooseAnchorLine`) and every row is snapped to those columns. Real columns
+ * are vertically consistent across rows, whereas a wide cell holding left- and
+ * right-justified content is not — so pinning each row to one line's columns
+ * prevents that within-cell gap from being mistaken for a column break (which
+ * previously spawned a phantom, unnamed trailing column). Within a column,
+ * words are joined with a single space.
  */
 export const buildTableText = (words: OcrWord[], naturalHeight: number): string => {
     if (words.length === 0) return '';
@@ -81,19 +142,14 @@ export const buildTableText = (words: OcrWord[], naturalHeight: number): string 
 
     const lineGroups = groupWordsIntoLines(words, naturalHeight);
 
-    // Derive canonical column anchors (pixel left edges) from the header line.
-    // A gap wider than ~3 spaces between header words starts a new column;
-    // smaller gaps keep multi-word headers (e.g. "Course Number") in one column.
+    // Derive canonical column anchors (pixel left edges) from the most
+    // representative line. A gap wider than ~3 spaces between its words starts a
+    // new column; smaller gaps keep multi-word headers ("Course Number") in one.
+    // The corroboration tolerance is one character: scanned columns are aligned
+    // to within a character's width, not to the pixel.
     const columnGap = avgCharWidth * 3;
-    const headerLine = lineGroups[0];
-    const anchors: number[] = [];
-    let prevRight = -Infinity;
-    for (const w of headerLine) {
-        if (w.box_coords.left - prevRight > columnGap) {
-            anchors.push(w.box_coords.left);
-        }
-        prevRight = w.box_coords.left + w.box_coords.width;
-    }
+    const headerLine = chooseAnchorLine(lineGroups, columnGap, avgCharWidth);
+    const anchors = columnAnchorsOf(headerLine, columnGap);
     if (anchors.length === 0) anchors.push(headerLine[0].box_coords.left);
 
     // The column a word belongs to: the rightmost anchor at or left of the word.
@@ -136,6 +192,23 @@ export const generateLinesFromWords = (words: OcrWord[], imageHeight: number): L
     groupWordsIntoLines(words, imageHeight).map(line =>
         line.map(word => ({ text: word.text, wordId: word.id }))
     );
+
+/**
+ * Plain reading-order text: lines top-to-bottom, words left-to-right, one line
+ * per row. This is what `document_pages.full_text` holds and what content search
+ * matches against.
+ *
+ * It is the single builder for that string. The value used to be written two
+ * different ways: the initial insert stored Tesseract's raw `image_to_data`
+ * output — the TSV *data table*, header row and all, not readable text — and
+ * only a subsequent word edit replaced it with real text. Nothing read the
+ * column back then, so it was harmless; the moment search started matching on
+ * it, half the corpus would have been TSV field names.
+ */
+export const buildReadingOrderText = (words: OcrWord[], imageHeight: number): string =>
+    groupWordsIntoLines(words, imageHeight)
+        .map(line => line.map(word => word.text).join(' '))
+        .join('\n');
 
 // Reading order: lines top-to-bottom, words left-to-right within each line.
 export const sortWords = (words: OcrWord[], imageHeight: number): OcrWord[] =>

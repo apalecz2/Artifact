@@ -14,7 +14,6 @@ export default function CompleteStep({ backend, onLaunch }: Props): React.ReactE
 
     useEffect(() => {
         invoke<SetupPaths>('get_setup_paths').then(async paths => {
-            writeSetting('llamaServerPath', paths.llama_server);
             writeSetting('modelPath', paths.model_path);
             writeSetting('mmprojPath', paths.mmproj_path);
             writeSetting('hardwareBackend', backend);

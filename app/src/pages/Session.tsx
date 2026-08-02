@@ -9,7 +9,7 @@ import { useDocumentExtraction } from '../features/extraction/useDocumentExtract
 import { useLlamaChat } from '../features/llama/useLlamaChat';
 import { LlamaChatProvider } from '../features/llama/LlamaChatContext';
 import { SplitLayout } from '../layouts/SplitLayout';
-import { generateLinesFromWords } from '../utils/ocrTransforms';
+import { buildReadingOrderText, generateLinesFromWords } from '../utils/ocrTransforms';
 import { sanitizeWordsForProvenance, getCellSourceBox, padProvenanceGrid } from '../features/extraction/provenance';
 import type { BoundingBox } from '../features/ocr/types';
 import type { ProvenanceCell } from '../features/extraction/types';
@@ -58,6 +58,10 @@ function SessionContent(): React.ReactElement {
     const [outputView, setOutputView] = useState<'raw' | 'table'>('raw');
     const [savedCsv, setSavedCsv] = useState<string | null>(null);
     const [provenanceCells, setProvenanceCells] = useState<ProvenanceCell[][] | null>(null);
+    // Counts *wholesale* replacements of the table — a fresh extraction, or a load
+    // from the database — as opposed to edits of the one on screen. It is half of
+    // the editor's reset key; see `replaceTable`.
+    const [tableGeneration, setTableGeneration] = useState(0);
     const [selectedCell, setSelectedCell] = useState<SelectedCell>(null);
     const [provenanceHighlightBox, setProvenanceHighlightBox] = useState<BoundingBox | null>(null);
     const [extractionError, setExtractionError] = useState<string | null>(null);
@@ -88,21 +92,41 @@ function SessionContent(): React.ReactElement {
     const totalPages = extractionResult?.pages.length ?? 1;
     const activePage = extractionResult?.pages[activePageIndex];
 
-    // Reconstruct the reading-ordered lines once; reused for both the rendered
-    // text and the copy-to-clipboard payload so they always match.
+    // The reading-ordered lines (rendered, word by word, so each stays clickable)
+    // and the same content as flat text (copy-to-clipboard, and what gets stored
+    // as the page's `full_text`). Both come from `groupWordsIntoLines`, so the
+    // copied text always matches what is on screen.
     const rawLines = useMemo(
         () => (activePage?.words ? generateLinesFromWords(activePage.words, activePage.natural_height) : []),
         [activePage]
     );
     const rawText = useMemo(
-        () => rawLines.map(line => line.map(w => w.text).join(' ')).join('\n'),
-        [rawLines]
+        () => (activePage?.words ? buildReadingOrderText(activePage.words, activePage.natural_height) : ''),
+        [activePage]
     );
 
     // Whether a table has been produced for this page yet. Drives the table-tab
     // empty state (centered "Format" button) vs. the populated state (bottom
     // toolbar with export / re-extract).
     const hasTable = (provenanceCells?.length ?? 0) > 0 || !!savedCsv;
+
+    /**
+     * Put a different table on screen — the result of an extraction, or whatever
+     * the database holds for the page being opened.
+     *
+     * Distinct from `applyCellUpdate` (which commits an *edit* to the table that
+     * is already there) because the table editor's undo stack is over one
+     * specific grid. Re-extracting replaced the grid without changing
+     * `session:page`, so the stack survived: pressing Undo once afterwards wrote
+     * the pre-extraction table back over the new one and persisted it. Bumping
+     * the generation here is what tells the editor the thing underneath it is a
+     * different table now, so it starts with clean history.
+     */
+    const replaceTable = (csv: string | null, cells: ProvenanceCell[][] | null) => {
+        setSavedCsv(csv);
+        setProvenanceCells(cells);
+        setTableGeneration(generation => generation + 1);
+    };
 
     // Copy handlers throw on failure so CopyButton can keep its confirmation state
     // accurate; CopyButton owns the transient "Copied" UI.
@@ -162,10 +186,9 @@ function SessionContent(): React.ReactElement {
             if (cancelled) return;
             const csv = rows[0]?.csv_content ?? null;
             const mappingsJson = rows[0]?.cell_mappings_json ?? null;
-            setSavedCsv(csv);
             // Pad ragged grids (the model may omit trailing empty cells; older
             // sessions persisted them that way) so the last column always renders.
-            setProvenanceCells(mappingsJson ? padProvenanceGrid(JSON.parse(mappingsJson) as ProvenanceCell[][]) : null);
+            replaceTable(csv, mappingsJson ? padProvenanceGrid(JSON.parse(mappingsJson) as ProvenanceCell[][]) : null);
             setSelectedCell(null);
             setSelectedWordId(null);
             setProvenanceHighlightBox(null);
@@ -209,8 +232,7 @@ function SessionContent(): React.ReactElement {
                 activePageIndex,
                 { boostTokens },
             );
-            setSavedCsv(result.csvContent);
-            setProvenanceCells(padProvenanceGrid(result.provenanceCells));
+            replaceTable(result.csvContent, padProvenanceGrid(result.provenanceCells));
             setTruncated(result.truncated);
             setContextOverflow(result.contextOverflow);
         } catch (err) {
@@ -363,7 +385,7 @@ function SessionContent(): React.ReactElement {
                 handleCellClick={handleCellClick}
                 clearCellSelection={clearCellSelection}
                 onApplyGrid={applyCellUpdate}
-                tableKey={`${id ?? 'none'}:${activePageIndex}`}
+                tableKey={`${id ?? 'none'}:${activePageIndex}:${tableGeneration}`}
                 savedCsv={savedCsv}
                 handleCopyTable={handleCopyTable}
                 hasTable={hasTable}

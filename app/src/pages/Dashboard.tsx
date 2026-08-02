@@ -6,8 +6,17 @@ import Icon from '../components/Icon';
 
 import { writeFile, mkdir, BaseDirectory } from '@tauri-apps/plugin-fs';
 import { join, appDataDir } from '@tauri-apps/api/path';
+import { rechunk } from '../utils/streamChunks';
 
 const MAX_FILE_SIZE_BYTES = 500 * 1024 * 1024; // 500 MB
+
+// Enough leading bytes for every magic number below (PNG's is the longest, at 8).
+// Only this much of the upload is ever read into the webview — the copy itself is
+// streamed, so a 500 MB document never exists as a 500 MB array here.
+const MAGIC_BYTES = 8;
+
+// Block size for that streamed copy; see `rechunk`.
+const COPY_CHUNK_BYTES = 4 * 1024 * 1024;
 
 // Supported uploads, keyed by MIME type. `ext` is the canonical extension used for
 // the stored copy — derived from the verified type, never the user-supplied
@@ -101,20 +110,21 @@ export default function Dashboard(): React.ReactElement {
         try {
             const db = await getDb();
 
-            // 1. Read the bytes up front — both to magic-verify and so type
+            // 1. Read just the leading bytes — both to magic-verify and so type
             //    detection can fall back to content sniffing for MIME-less files.
-            const arrayBuffer = await file.arrayBuffer();
-            const uint8Array = new Uint8Array(arrayBuffer);
+            //    Nothing here needs more than the header, and reading the whole
+            //    file for it put the entire upload in the webview heap.
+            const header = new Uint8Array(await file.slice(0, MAGIC_BYTES).arrayBuffer());
 
             // 2. Resolve the supported type (MIME → extension → magic bytes), then
             //    confirm the magic number matches it, so a corrupt/mislabeled file is
             //    rejected without leaving an orphan session behind.
-            const fileType = detectFileType(file, uint8Array);
+            const fileType = detectFileType(file, header);
             if (!fileType) {
                 setFileError(`"${file.name}" is not a supported file type. Please upload PDF, PNG, or JPEG files.`);
                 return;
             }
-            if (!fileType.matchesMagic(uint8Array)) {
+            if (!fileType.matchesMagic(header)) {
                 setFileError(`"${file.name}" doesn't look like a valid ${fileType.ext.toUpperCase()} file. It may be corrupted or mislabeled.`);
                 return;
             }
@@ -147,8 +157,17 @@ export default function Dashboard(): React.ReactElement {
                 [fileId, newSessionId, file.name, absolutePath]
             );
 
-            // 6. Copy the file into AppData.
-            await writeFile(relativePath, uint8Array, { baseDir: BaseDirectory.AppData });
+            // 6. Copy the file into AppData, streaming it: `writeFile` takes a
+            //    ReadableStream and writes it block by block through an open file
+            //    handle, so the bytes go disk-to-disk without the upload ever being
+            //    materialised whole on this side of the bridge. That path uses
+            //    different plugin commands than the buffered one, which is why
+            //    `fs:allow-open` and `fs:allow-write` sit in capabilities/default.json
+            //    beside `fs:allow-write-file`; all three stay inside the AppData
+            //    scope the existing scope permissions define.
+            await writeFile(relativePath, rechunk(file.stream(), COPY_CHUNK_BYTES), {
+                baseDir: BaseDirectory.AppData,
+            });
 
             // Navigate to the new workspace
             navigate(`/session/${newSessionId}`);

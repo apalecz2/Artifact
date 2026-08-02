@@ -120,6 +120,55 @@ describe('buildTableText', () => {
         expect(out.split('\n')).toEqual(['Title', 'Value']);
     });
 
+    /**
+     * The regression this guards: the anchor line used to be `lineGroups[0]`, so a
+     * document leading with a title, a date or a page number — a single centred
+     * word, hence exactly one anchor — collapsed every row of the prompt text into
+     * one column. Scanned documents lead with one of those routinely, and nothing
+     * reported that the spatial layout had been thrown away.
+     */
+    it('ignores a one-word title line and takes its columns from the real table', () => {
+        const words = [
+            word('INVOICE', 150, 0, 70),      // centred title, alone on its line
+            word('Item', 0, 100, 40),
+            word('Qty', 300, 100, 30),
+            word('Widget', 0, 200, 60),
+            word('12', 300, 200, 20),
+        ];
+        const lines = buildTableText(words, H).split('\n');
+        // Two columns, aligned across the header and the body row.
+        expect(lines[1].indexOf('Qty')).toBe(lines[2].indexOf('12'));
+        expect(lines[1].indexOf('Qty')).toBeGreaterThan(4);
+    });
+
+    it('prefers the columns the rest of the page corroborates over a noisy line', () => {
+        // A speckled leading line breaks at 320px — a boundary no real row shares.
+        // Taken as the anchor, it puts both headers in one column (300 < 320) and
+        // splits "CS Dept" across two. Only the corroborated header line gives the
+        // table its actual shape.
+        const words = [
+            word('.', 0, 0, 4), word('.', 320, 0, 4),
+            word('Name', 0, 100, 40),
+            word('Code', 300, 100, 40),
+            word('Alice', 0, 200, 50),
+            word('CS', 300, 200, 20), word('Dept', 340, 200, 30),
+        ];
+        const lines = buildTableText(words, H).split('\n');
+        expect(lines[1]).toMatch(/Name\s+Code/);   // two columns, not one merged cell
+        expect(lines[2]).toMatch(/CS Dept/);       // one cell, not split at 320
+    });
+
+    it('still uses the first line when it is the header (ties go to the earliest)', () => {
+        const words = [
+            word('Name', 0, 0, 40),
+            word('Code', 300, 0, 40),
+            word('Alice', 0, 100, 50),
+            word('CS', 300, 100, 20),
+        ];
+        const lines = buildTableText(words, H).split('\n');
+        expect(lines[0].indexOf('Code')).toBe(lines[1].indexOf('CS'));
+    });
+
     it('pads a later column to its character anchor', () => {
         const words = [
             word('A', 0, 0, 10),

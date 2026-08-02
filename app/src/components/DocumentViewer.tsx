@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import type { OcrWord, BoundingBox } from '../features/ocr/types';
 import { useTheme } from '../hooks/useTheme';
+import { clampZoom, maxZoomFor } from './documentZoom';
 
 export interface DocumentViewerHandle {
     fitToScreen: () => void;
@@ -12,12 +13,9 @@ export interface DocumentViewerHandle {
 
 // Zoom is relative to the fitted image, not to its natural pixels: 1 means the
 // page exactly fits the visible pane (with FIT_INSET breathing room), 0.5 means
-// half that size, 2 double. Because the fit is recomputed from the live pane
-// size on every render, a given zoom value always means the same thing no
-// matter how the window or split divider is resized.
-export const MIN_ZOOM = 0.5;
-export const MAX_ZOOM = 2;
-export const ZOOM_STEP = 0.25;
+// half that size. The ceiling is *derived* from the fit rather than fixed, so
+// 1:1 with the source pixels is always reachable — see documentZoom.ts, which
+// owns all of this arithmetic.
 const FIT_INSET = 16; // breathing room around the fitted image, in px
 
 // Word-level confidence at/above this is treated as "high" and, under the
@@ -30,8 +28,6 @@ const OVERLAY_HIGH_CONFIDENCE = 85;
 // occupy, so it's clearly readable but keeps surrounding context visible.
 const ZOOM_TO_BOX_TARGET_FRACTION = 0.35;
 
-const clampZoom = (z: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z));
-
 interface DocumentViewerProps {
     fileUrl: string;
     words: OcrWord[];
@@ -42,10 +38,15 @@ interface DocumentViewerProps {
     setHighlightedWordId: (id: string | null) => void;
     onWordClick?: (wordId: string) => void;
     activeTool: 'draw' | 'pan';
-    /** Zoom relative to the fitted size (1 = fits the pane); see MIN_ZOOM. */
+    /** Zoom relative to the fitted size (1 = fits the pane); see documentZoom.ts. */
     zoom: number;
     /** Reports zoom changes made inside the viewer (wheel, fit, zoomToBox). */
     onZoomChange: (zoom: number) => void;
+    /** Reports the natural-pixels-to-pane scale of the fitted view, or null
+     *  before both the image and the pane have been measured. Only the viewer
+     *  knows it, and the toolbar needs it for two things it cannot otherwise
+     *  derive: the zoom ceiling (`maxZoomFor`) and the true-size readout. */
+    onFitScaleChange?: (fitScale: number | null) => void;
     provenanceHighlightBox?: BoundingBox | null;
     /** Fired when the source image fails to load (e.g. the file was moved/deleted). */
     onLoadError?: () => void;
@@ -99,6 +100,7 @@ const DocumentViewer = forwardRef<DocumentViewerHandle, DocumentViewerProps>(fun
     activeTool,
     zoom,
     onZoomChange,
+    onFitScaleChange,
     provenanceHighlightBox,
     onLoadError,
     overlayMode = 'all',
@@ -152,7 +154,8 @@ const DocumentViewer = forwardRef<DocumentViewerHandle, DocumentViewerProps>(fun
                 (containerSize.height - FIT_INSET * 2) / naturalSize.height,
             )
             : null;
-    const scale = fitScale !== null ? clampZoom(zoom) * fitScale : 1;
+    const maxZoom = maxZoomFor(fitScale);
+    const scale = fitScale !== null ? clampZoom(zoom, maxZoom) * fitScale : 1;
     const offsetX = containerSize.width / 2 - center.x * scale;
     const offsetY = containerSize.height / 2 - center.y * scale;
 
@@ -175,10 +178,26 @@ const DocumentViewer = forwardRef<DocumentViewerHandle, DocumentViewerProps>(fun
 
     // Snapshot of the current view, read inside stable event handlers (wheel,
     // drag, imperative calls) without making them stale or re-attached.
-    const viewRef = useRef({ zoom, fitScale, scale, cw: 0, ch: 0, center });
-    viewRef.current = { zoom, fitScale, scale, cw: containerSize.width, ch: containerSize.height, center };
+    const viewRef = useRef({ zoom, fitScale, maxZoom, scale, cw: 0, ch: 0, center });
+    viewRef.current = { zoom, fitScale, maxZoom, scale, cw: containerSize.width, ch: containerSize.height, center };
     const onZoomChangeRef = useRef(onZoomChange);
     onZoomChangeRef.current = onZoomChange;
+    const onFitScaleChangeRef = useRef(onFitScaleChange);
+    onFitScaleChangeRef.current = onFitScaleChange;
+
+    // Publish the fit scale, and pull the zoom back under the ceiling it implies.
+    // The ceiling moves whenever the fit does (split-divider drag, window resize,
+    // a new page of a different size), and a zoom left above it would render
+    // clamped while the toolbar still showed — and stepped from — the stale
+    // value. The render clamps regardless, so this only reconciles the state.
+    // Both callbacks are read through refs so an inline arrow from the parent
+    // can't turn this into a per-render effect.
+    useEffect(() => {
+        onFitScaleChangeRef.current?.(fitScale);
+        if (fitScale !== null && zoom > maxZoomFor(fitScale)) {
+            onZoomChangeRef.current(maxZoomFor(fitScale));
+        }
+    }, [fitScale, zoom]);
 
     // --- Pan & Zoom interactions ---
     // Keep the pane size in sync (split divider, window resize). Only state is
@@ -199,9 +218,9 @@ const DocumentViewer = forwardRef<DocumentViewerHandle, DocumentViewerProps>(fun
 
         const handleWheel = (e: WheelEvent) => {
             e.preventDefault();
-            const { zoom, fitScale, scale, cw, ch, center } = viewRef.current;
+            const { zoom, fitScale, maxZoom, scale, cw, ch, center } = viewRef.current;
             if (fitScale === null) return;
-            const newZoom = clampZoom(zoom * Math.exp(-e.deltaY * 0.002));
+            const newZoom = clampZoom(zoom * Math.exp(-e.deltaY * 0.002), maxZoom);
             if (newZoom === zoom) return;
             const newScale = newZoom * fitScale;
 
@@ -260,14 +279,14 @@ const DocumentViewer = forwardRef<DocumentViewerHandle, DocumentViewerProps>(fun
     // readable — never zooming out, so a user who's already zoomed in past that
     // point just gets re-centered instead of yanked back out.
     const zoomToBox = useCallback((box: BoundingBox) => {
-        const { zoom, fitScale, cw, ch } = viewRef.current;
+        const { zoom, fitScale, maxZoom, cw, ch } = viewRef.current;
         if (fitScale === null || box.width <= 0 || box.height <= 0) return;
         const desiredScale = Math.min(
             (cw * ZOOM_TO_BOX_TARGET_FRACTION) / box.width,
             (ch * ZOOM_TO_BOX_TARGET_FRACTION) / box.height,
         );
         setCenter({ x: box.left + box.width / 2, y: box.top + box.height / 2 });
-        onZoomChangeRef.current(clampZoom(Math.max(zoom, desiredScale / fitScale)));
+        onZoomChangeRef.current(clampZoom(Math.max(zoom, desiredScale / fitScale), maxZoom));
     }, []);
 
     useImperativeHandle(ref, () => ({ fitToScreen, zoomToBox }), [fitToScreen, zoomToBox]);

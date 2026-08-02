@@ -38,11 +38,14 @@ export interface AssetManifestEntry {
     version: string | null;
 }
 
+// No 'error' state: a failure ends the install outright and the wizard swaps the
+// whole step for its error screen, so a per-asset error status had nowhere to be
+// seen. The failing component is named in the message that screen shows instead
+// (see DownloadStep's `describeAssetFailure`).
 export interface AssetProgress {
-    status: 'pending' | 'downloading' | 'verifying' | 'extracting' | 'done' | 'skipped' | 'error';
+    status: 'pending' | 'downloading' | 'verifying' | 'extracting' | 'done' | 'skipped';
     bytes_received: number;
     total_bytes: number | null;
-    error?: string;
 }
 
 export interface SetupPaths {

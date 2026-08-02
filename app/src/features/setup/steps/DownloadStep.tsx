@@ -24,7 +24,19 @@ interface ProgressEvent {
     total_bytes: number | null;
 }
 
-const TERMINAL: AssetProgress['status'][] = ['done', 'skipped', 'extracting', 'error'];
+const TERMINAL: AssetProgress['status'][] = ['done', 'skipped', 'extracting'];
+
+/**
+ * The message the wizard's error screen shows, with the failing component named.
+ *
+ * Without the label, that screen shows only the backend's raw text — "hash
+ * mismatch for cudart", or a bare transport error — leaving the user to guess
+ * which of six downloads died and whether it was the big one. The label is the
+ * same friendly string the details list uses, minus its parenthetical size.
+ */
+export function describeAssetFailure(label: string, error: unknown): string {
+    return `Couldn’t install ${label.replace(/\s*\(.*\)$/, '')}. ${String(error)}`;
+}
 
 function formatBytes(bytes: number): string {
     if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(2)} GB`;
@@ -182,6 +194,10 @@ export default function DownloadStep({ config, onComplete, onError, onCancel }: 
                     if (asset.installed) continue;
 
                     setStatus(asset.asset_id, 'downloading');
+                    // Every way this asset can fail is re-thrown carrying its label,
+                    // so the wizard's error screen can say *what* failed. Nothing
+                    // else identifies it: the step unmounts on failure, taking the
+                    // per-component list with it.
                     try {
                         await invoke('download_file', {
                             url: asset.url_primary,
@@ -191,16 +207,19 @@ export default function DownloadStep({ config, onComplete, onError, onCancel }: 
                         });
                     } catch (primaryErr) {
                         if (cancelledRef.current) return; // cancelled, not a real failure
-                        if (asset.url_fallback) {
-                            // The primary exhausted its reconnect-and-resume retries. Its
-                            // `.part` holds bytes from a *different origin* than the one we
-                            // are about to stream, and resuming one source into the other's
-                            // bytes would corrupt the file — so discard before switching.
-                            //
-                            // This is only about the origin change. A `.part` that failed
-                            // *verification* is already gone: `download_file` discards it at
-                            // the point of the decision, which is what keeps a mismatch
-                            // recoverable for the assets that have no fallback to fall to.
+                        if (!asset.url_fallback) {
+                            throw new Error(describeAssetFailure(asset.label, primaryErr));
+                        }
+                        // The primary exhausted its reconnect-and-resume retries. Its
+                        // `.part` holds bytes from a *different origin* than the one we
+                        // are about to stream, and resuming one source into the other's
+                        // bytes would corrupt the file — so discard before switching.
+                        //
+                        // This is only about the origin change. A `.part` that failed
+                        // *verification* is already gone: `download_file` discards it at
+                        // the point of the decision, which is what keeps a mismatch
+                        // recoverable for the assets that have no fallback to fall to.
+                        try {
                             await invoke('clear_partial_download', { destPath: asset.dest_path });
                             await invoke('download_file', {
                                 url: asset.url_fallback,
@@ -208,8 +227,9 @@ export default function DownloadStep({ config, onComplete, onError, onCancel }: 
                                 assetId: asset.asset_id,
                                 expectedSha256: asset.sha256,
                             });
-                        } else {
-                            throw primaryErr;
+                        } catch (fallbackErr) {
+                            if (cancelledRef.current) return;
+                            throw new Error(describeAssetFailure(asset.label, fallbackErr));
                         }
                     }
 
@@ -221,7 +241,10 @@ export default function DownloadStep({ config, onComplete, onError, onCancel }: 
                                 archivePath: asset.dest_path,
                                 destDir: asset.extract_to_dir,
                                 flattenMarker: asset.flatten_marker,
-                            }).then(() => setStatus(asset.asset_id, 'done', { bytes_received: asset.size_bytes })),
+                            }).then(
+                                () => setStatus(asset.asset_id, 'done', { bytes_received: asset.size_bytes }),
+                                err => { throw new Error(describeAssetFailure(asset.label, err)); },
+                            ),
                         );
                     } else {
                         setStatus(asset.asset_id, 'done', { bytes_received: asset.size_bytes });
@@ -235,7 +258,9 @@ export default function DownloadStep({ config, onComplete, onError, onCancel }: 
                 onComplete();
             } catch (err) {
                 if (cancelledRef.current) return; // cancellation surfaces as a download error — ignore it
-                onError(String(err));
+                // Tauri rejects `invoke` with a plain string; the per-asset failures
+                // above are Errors already carrying the component's name.
+                onError(err instanceof Error ? err.message : String(err));
             } finally {
                 unlistenFn?.();
             }
@@ -481,11 +506,6 @@ function StatusIcon({ status }: { status: AssetProgress['status'] }): React.Reac
     if (status === 'done' || status === 'skipped') {
         return (
             <Icon name="check_circle" size={20} fill={1} className="text-primary shrink-0" />
-        );
-    }
-    if (status === 'error') {
-        return (
-            <Icon name="error" size={20} className="text-error shrink-0" />
         );
     }
     if (status === 'downloading' || status === 'verifying' || status === 'extracting') {

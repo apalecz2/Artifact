@@ -199,16 +199,17 @@ Welcome → (Configuration) → Install → Complete
   - **Sequential downloads, overlapped extraction:** downloads run one at a time (they share a single network pipe, so racing them wouldn't be faster), but an archive's extraction (`extract_archive`, run off‑thread via `spawn_blocking`) is kicked off without blocking the *next* asset's download — CPU/disk work overlaps network work.
   - **Resilience:** dropped or stalled connections reconnect and resume from the `.part` via HTTP Range; progress events are coalesced to ~10/sec.
   - **Cancellable / resumable:** the user can cancel at any time (a Cancel button, or by closing the window — which prompts a confirmation rather than silently discarding work). Cancelling advances a monotonic generation counter that the in-flight download polls between chunks, so even the multi-GB model stops promptly; the partially-downloaded `.part` and any already-installed assets are kept, so the next run skips finished assets and resumes the rest. Because nothing reaches its final path until verified, an interrupted install can never leave a corrupt file behind. A `.part` the user never returns to resume is not left forever: a startup sweep (`sweep_stale_partials`) reclaims any `.part` older than a retention window (7 days) — long enough that a genuine resume is never disturbed, short enough that an abandoned multi-GB partial doesn't linger.
-- **Complete** — writes all resolved paths (`modelPath`, `mmprojPath`, `llamaServerPath`) and the chosen `hardwareBackend` to persistent settings, then reloads the webview to enter the main app.
+- **Complete** — writes the resolved model paths (`modelPath`, `mmprojPath`) and the chosen `hardwareBackend` to persistent settings, then reloads the webview to enter the main app.
 
 ### 7.5 Settings Schema Additions
 
-Two new keys are added alongside the existing settings:
+One new key is added alongside the existing settings:
 
 | Key | Type | Purpose |
 |---|---|---|
-| `llamaServerPath` | `string` | Absolute path to the downloaded llama‑server binary |
 | `hardwareBackend` | `'cpu' \| 'cuda' \| 'rocm' \| 'metal'` | Chosen acceleration backend; controls which llama‑server build is used |
+
+There is deliberately **no** `llamaServerPath` setting. `llama.rs` resolves the binary from the canonical AppData layout itself (`resolve_llama_server_path`) and never reads one, so a stored path could only ever disagree with the path actually launched. The model paths are different: `llamaClient` passes them to the server and Settings lets the user point them elsewhere, so they are genuinely settings.
 
 The existing `modelPath` and `mmprojPath` keys, previously empty strings by default, are populated by the wizard with their AppData locations.
 

@@ -23,8 +23,10 @@ export function SourceHelp(): React.ReactElement {
                 vice-versa) so you can line up the image with the text.
             </HelpItem>
             <HelpItem icon="zoom_in" title="Zoom & fit">
-                Use the zoom buttons or slider to get a closer look; the fit button resets
-                the view to the whole page.
+                Use the zoom buttons or slider to get a closer look — the readout is a
+                percentage of the scan&rsquo;s own resolution, so 100% is actual size and
+                as sharp as the page gets. The fit button resets the view to the whole
+                page.
             </HelpItem>
             <HelpItem icon="description" title="Multi-page documents">
                 For PDFs, use the page controls to move between pages. Each page is

@@ -1,6 +1,14 @@
 import React from 'react';
-import DocumentViewer, { MIN_ZOOM, MAX_ZOOM, ZOOM_STEP } from '../../components/DocumentViewer';
+import DocumentViewer from '../../components/DocumentViewer';
 import type { DocumentViewerHandle } from '../../components/DocumentViewer';
+import {
+    MIN_ZOOM,
+    maxZoomFor,
+    naturalZoomPercent,
+    sliderToZoom,
+    steppedZoom,
+    zoomToSlider,
+} from '../../components/documentZoom';
 import Icon from '../../components/Icon';
 import { HelpOverlay } from '../../components/HelpOverlay';
 import { WordEditModal } from '../../features/extraction/WordEditModal';
@@ -112,7 +120,7 @@ interface SourceDocumentPaneProps {
     provenanceHighlightBox: BoundingBox | null;
 
     // Tool + viewport. Zoom is relative to the fitted size (1 = the image
-    // exactly fits the pane); the viewer clamps it to [MIN_ZOOM, MAX_ZOOM].
+    // exactly fits the pane); the viewer clamps it to [MIN_ZOOM, maxZoomFor(fit)].
     activeTool: 'draw' | 'pan';
     setActiveTool: (tool: 'draw' | 'pan') => void;
     zoom: number;
@@ -150,6 +158,13 @@ export function SourceDocumentPane(props: SourceDocumentPaneProps): React.ReactE
 
     const [helpOpen, setHelpOpen] = React.useState(false);
 
+    // Reported by the viewer, which is the only place that knows the image's
+    // natural size and the pane's live size. It sets both the zoom ceiling and
+    // the true-size readout — null until the first measurement lands.
+    const [fitScale, setFitScale] = React.useState<number | null>(null);
+    const maxZoom = maxZoomFor(fitScale);
+    const naturalPercent = naturalZoomPercent(zoom, fitScale);
+
     // Where this toolbar drops its labels. Page-count dependent: the navigator
     // below is only rendered for a multi-page document, and it takes enough of
     // the row to move every threshold (see sourceToolbarClasses).
@@ -161,13 +176,24 @@ export function SourceDocumentPane(props: SourceDocumentPaneProps): React.ReactE
         setImageLoadFailed(false);
     }, [fileUrl]);
 
+    /**
+     * Commit a typed page number, clamped into range.
+     *
+     * The box is rewritten here rather than left to the effect that resyncs it on
+     * `activePageIndex`: a clamped entry often *doesn't* move the page (typing 99
+     * while already on the last page, or 0 while on the first), so that effect
+     * never fires and the box sits showing a page the document doesn't have —
+     * indefinitely, since it also looks unchanged to every later render. Writing
+     * the committed value unconditionally makes the box a function of the commit,
+     * not of a state change that may not happen.
+     */
     const commitPageInput = () => {
         const parsed = parseInt(pageInputValue, 10);
-        if (!isNaN(parsed)) {
-            goToPage(Math.min(Math.max(parsed - 1, 0), totalPages - 1));
-        } else {
-            setPageInputValue((activePageIndex + 1).toString());
-        }
+        const target = isNaN(parsed)
+            ? activePageIndex
+            : Math.min(Math.max(parsed - 1, 0), totalPages - 1);
+        setPageInputValue((target + 1).toString());
+        if (target !== activePageIndex) goToPage(target);
     };
 
     const handleSaveWord = (text: string) => {
@@ -247,6 +273,7 @@ export function SourceDocumentPane(props: SourceDocumentPaneProps): React.ReactE
                         activeTool={activeTool}
                         zoom={zoom}
                         onZoomChange={setZoom}
+                        onFitScaleChange={setFitScale}
                         provenanceHighlightBox={provenanceHighlightBox}
                         onLoadError={() => setImageLoadFailed(true)}
                         overlayMode={overlayMode}
@@ -337,18 +364,23 @@ export function SourceDocumentPane(props: SourceDocumentPaneProps): React.ReactE
                             </div>
                         )}
 
-                        {/* Zoom Controls — zoom is relative to the fitted size, so
-                            100% always means "fits the pane" and 50%/200% mean half/
-                            double that, regardless of window size. The slider is the
-                            first thing to go on a narrow pane: it only duplicates the
-                            −/+ buttons beside it. The percentage readout outlives it,
-                            since nothing else reports the current zoom. */}
+                        {/* Zoom Controls — the readout is a percentage of the source
+                            image's own pixels, so 100% means "actual size, nothing
+                            left to see" rather than "fits the pane". The ceiling is
+                            exactly that 100% (see documentZoom.ts), which is why the
+                            slider's right-hand end is worth reaching. It's a log
+                            track: the range is lopsided (a full-page scan fits at
+                            ~23%, so it spans ~12%..100%) and linear travel would bury
+                            the fitted view near the left stop. The slider is still the
+                            first thing to go on a narrow pane — it only duplicates the
+                            −/+ buttons — and the readout outlives it, since nothing
+                            else reports the current zoom. */}
                         <div className="flex shrink-0 items-center gap-1">
                             <button
                                 aria-label="Zoom out"
                                 className={iconBtnClass}
                                 disabled={zoom <= MIN_ZOOM}
-                                onClick={() => setZoom(Math.max(MIN_ZOOM, zoom - ZOOM_STEP))}
+                                onClick={() => setZoom(steppedZoom(zoom, -1, maxZoom))}
                                 type="button"
                             >
                                 <Icon name="zoom_out" size={18} fill={0} />
@@ -356,23 +388,26 @@ export function SourceDocumentPane(props: SourceDocumentPaneProps): React.ReactE
 
                             <input
                                 type="range"
-                                min={MIN_ZOOM}
-                                max={MAX_ZOOM}
-                                step="0.05"
-                                value={zoom}
-                                onChange={(e) => setZoom(parseFloat(e.target.value))}
+                                min={0}
+                                max={1}
+                                step="0.001"
+                                value={zoomToSlider(zoom, maxZoom)}
+                                onChange={(e) => setZoom(sliderToZoom(parseFloat(e.target.value), maxZoom))}
                                 className={`w-20 accent-primary cursor-pointer ${tb.detailBlock}`}
                                 aria-label="Zoom level"
                             />
-                            <span className={`w-10 select-none text-center text-xs tabular-nums text-on-surface-variant ${tb.labelBlock}`}>
-                                {Math.round(zoom * 100)}%
+                            <span
+                                className={`w-10 select-none text-center text-xs tabular-nums text-on-surface-variant ${tb.labelBlock}`}
+                                title={naturalPercent !== null ? 'Percentage of the scan’s own resolution — 100% is actual size' : undefined}
+                            >
+                                {naturalPercent !== null ? `${naturalPercent}%` : '—'}
                             </span>
 
                             <button
                                 aria-label="Zoom in"
                                 className={iconBtnClass}
-                                disabled={zoom >= MAX_ZOOM}
-                                onClick={() => setZoom(Math.min(MAX_ZOOM, zoom + ZOOM_STEP))}
+                                disabled={zoom >= maxZoom}
+                                onClick={() => setZoom(steppedZoom(zoom, 1, maxZoom))}
                                 type="button"
                             >
                                 <Icon name="zoom_in" size={18} fill={0} />

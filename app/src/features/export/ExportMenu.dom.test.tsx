@@ -96,13 +96,20 @@ describe('ExportMenu', () => {
         });
     });
 
-    it('copies markdown to the clipboard and flips to "Copied!" then back', async () => {
+    /**
+     * TSV, not Markdown. This button sits a few pixels from the card's own Copy
+     * button on the same table; writing a different format from it made the one
+     * *inside the Export menu* the one that pastes into a spreadsheet as a column
+     * of pipe characters. (jsdom has no `ClipboardItem`, so `copyTableToClipboard`
+     * takes its text/plain-only path here — which is the TSV either way.)
+     */
+    it('copies the table as TSV and flips to "Copied!" then back', async () => {
         vi.useFakeTimers();
         const writeText = mockClipboard();
         render(<ExportMenu provenanceCells={rows} savedCsv={null} fileStem="x" />);
         fireEvent.click(screen.getByRole('button', { name: /Export/ }));
         fireEvent.click(screen.getByText('Copy table'));
-        expect(writeText).toHaveBeenCalledWith(exportUtils.toMarkdown([['Name', 'Age'], ['Al', '30']]));
+        expect(writeText).toHaveBeenCalledWith('Name\tAge\nAl\t30');
         // resolve the clipboard promise -> "Copied!"
         await act(async () => { await Promise.resolve(); });
         expect(screen.getByText('Copied!')).toBeInTheDocument();
@@ -152,10 +159,6 @@ describe('ExportMenu', () => {
 
     it('reports a refused clipboard instead of silently showing nothing', async () => {
         mockClipboard().mockRejectedValue(new Error('denied'));
-        // copyTextToClipboard's execCommand fallback has to decline too, or the copy
-        // would legitimately succeed. Defined (and torn down) the way clipboard's own
-        // spec does it — jsdom provides no execCommand of its own.
-        Object.defineProperty(document, 'execCommand', { value: () => false, configurable: true });
         render(<ExportMenu provenanceCells={rows} savedCsv={null} fileStem="x" />);
         fireEvent.click(screen.getByRole('button', { name: /Export/ }));
         fireEvent.click(screen.getByText('Copy table'));

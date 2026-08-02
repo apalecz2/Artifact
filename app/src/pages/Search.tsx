@@ -3,16 +3,74 @@ import { Link } from 'react-router';
 import { DeleteSessionDialog } from '../features/sessions/DeleteSessionDialog';
 import { getDb } from '../lib/db';
 import Icon from '../components/Icon';
-import { formatSqliteTimestamp, escapeLike } from './searchUtils';
+import { formatSqliteTimestamp, escapeLike, matchSnippet } from './searchUtils';
 
 interface Session {
     id: string;
     title: string;
     created_at: string;
     updated_at: string;
+    /** Text of the first page whose OCR text matched, or null. */
+    scan_match: string | null;
+    /** Content of the first extracted table that matched, or null. */
+    table_match: string | null;
 }
 
 const ITEMS_PER_PAGE = 10;
+
+/** The excerpt under a result, shown when the query was found in the session's
+ *  content rather than (or as well as) its name. The document's own words come
+ *  first — that is what the user was reading when they remembered the phrase. */
+function MatchExcerpt({ session, query }: { session: Session; query: string }): React.ReactElement | null {
+    const sources = [
+        { label: 'In the document', text: session.scan_match },
+        { label: 'In the extracted table', text: session.table_match },
+    ];
+    for (const { label, text } of sources) {
+        const snippet = text ? matchSnippet(text, query) : null;
+        if (!snippet) continue;
+        return (
+            <span className="mt-1 flex min-w-0 items-baseline gap-2 text-sm">
+                <span className="shrink-0 text-xs uppercase tracking-wide text-on-surface-variant/70">{label}</span>
+                <span className="truncate text-on-surface-variant">
+                    {snippet.before}
+                    <mark className="bg-primary/20 text-on-surface">{snippet.match}</mark>
+                    {snippet.after}
+                </span>
+            </span>
+        );
+    }
+    return null;
+}
+
+/**
+ * What "matches" means: the session's name, the OCR text of any of its pages, or
+ * any table extracted from it.
+ *
+ * Title-only search was the letter of the schema and not the promise the
+ * placeholder makes ("Search extractions…"): a user who remembers a document by
+ * something *in* it — an invoice number, a name in a column — is exactly the
+ * user this page is for, and the content is already stored per session. It is a
+ * scan rather than an index (no FTS table), which suits a local corpus of a few
+ * hundred documents and keeps the schema as it is.
+ *
+ * `$1` is the caller's `%…%` term, escaped for LIKE.
+ */
+const MATCHES_QUERY = `(
+    s.title LIKE $1 ESCAPE '\\'
+    OR EXISTS (SELECT 1 FROM document_pages p WHERE p.session_id = s.id AND p.full_text LIKE $1 ESCAPE '\\')
+    OR EXISTS (SELECT 1 FROM csv_outputs c WHERE c.session_id = s.id AND c.csv_content LIKE $1 ESCAPE '\\')
+)`;
+
+// The matching text itself, for the excerpt under each result. Pulled in the same
+// round-trip as the results — a second query per row would be ten more of them.
+const MATCH_EXCERPTS = `
+    (SELECT p.full_text FROM document_pages p
+      WHERE p.session_id = s.id AND p.full_text LIKE $1 ESCAPE '\\'
+      ORDER BY p.page_index LIMIT 1) AS scan_match,
+    (SELECT c.csv_content FROM csv_outputs c
+      WHERE c.session_id = s.id AND c.csv_content LIKE $1 ESCAPE '\\'
+      ORDER BY c.page_index LIMIT 1) AS table_match`;
 
 export default function Search(): React.ReactElement {
     const [query, setQuery] = useState('');
@@ -51,9 +109,9 @@ export default function Search(): React.ReactElement {
                 // pass — the empty state needs to know whether the table itself is
                 // empty, and a second round-trip for that would be wasteful.
                 const countRes = await db.select<{ matches: number | null; total: number }[]>(
-                    `SELECT SUM(CASE WHEN title LIKE $1 ESCAPE '\\' THEN 1 ELSE 0 END) as matches,
+                    `SELECT SUM(CASE WHEN ${MATCHES_QUERY} THEN 1 ELSE 0 END) as matches,
                             COUNT(*) as total
-                     FROM sessions`,
+                     FROM sessions s`,
                     [searchTerm]
                 );
 
@@ -71,7 +129,10 @@ export default function Search(): React.ReactElement {
 
                 // Fetch paginated results
                 const items = await db.select<Session[]>(
-                    `SELECT * FROM sessions WHERE title LIKE $1 ESCAPE '\\' ORDER BY updated_at DESC LIMIT $2 OFFSET $3`,
+                    `SELECT s.*, ${MATCH_EXCERPTS}
+                     FROM sessions s
+                     WHERE ${MATCHES_QUERY}
+                     ORDER BY s.updated_at DESC LIMIT $2 OFFSET $3`,
                     [searchTerm, ITEMS_PER_PAGE, offset]
                 );
 
@@ -137,6 +198,7 @@ export default function Search(): React.ReactElement {
                                         <span className="truncate text-lg font-medium text-on-surface transition-colors group-hover:text-primary">
                                             {session.title}
                                         </span>
+                                        <MatchExcerpt session={session} query={debouncedQuery} />
                                         <span className="mt-1 text-sm text-on-surface-variant">
                                             Last updated: {formatSqliteTimestamp(session.updated_at)}
                                         </span>
@@ -159,8 +221,9 @@ export default function Search(): React.ReactElement {
                             <Icon name="search" size={40} className="text-on-surface-variant/50" />
                             <p className="text-lg font-medium text-on-surface">No extractions yet</p>
                             <p className="max-w-sm text-sm text-on-surface-variant">
-                                Once you extract a table from a document, it will show up here and
-                                you can search it by name.
+                                Once you extract a table from a document, it will show up here —
+                                searchable by name, by anything the scan says, and by anything in
+                                the table you pulled out of it.
                             </p>
                             <Link
                                 to="/"

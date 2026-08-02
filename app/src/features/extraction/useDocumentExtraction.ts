@@ -7,7 +7,7 @@ import { touchSession } from '../sessions/touchSession';
 import { discardCachedPages } from '../sessions/sessionActions';
 import { ExtractionResult, DocumentPageResult } from './types';
 import type { BoundingBox } from '../ocr/types';
-import { sortWords, generateLinesFromWords } from '../../utils/ocrTransforms';
+import { sortWords, buildReadingOrderText } from '../../utils/ocrTransforms';
 
 export type ProcessProgress = { current: number; total: number };
 
@@ -127,6 +127,13 @@ export function useDocumentExtraction(sessionId: string | undefined, activePageI
                 for (let i = 0; i < rustResult.pages.length; i++) {
                     const page = rustResult.pages[i];
                     page.words = sortWords(page.words.map(w => ({ ...w, id: crypto.randomUUID() })), page.natural_height);
+                    // Derive the readable text from the words rather than storing what
+                    // the backend handed us: `process_document` returns Tesseract's raw
+                    // `image_to_data` output, which is the TSV *data table* (header row
+                    // and all), not text a person or a search query could use. Built
+                    // here — and by the same function `updateDb` uses — so the column
+                    // means one thing from the first write onward.
+                    page.text = buildReadingOrderText(page.words, page.natural_height);
 
                     // Persist successful and failed pages alike so the page count and
                     // indices stay consistent; an errored page has no words/image and
@@ -206,8 +213,7 @@ export function useDocumentExtraction(sessionId: string | undefined, activePageI
 
     const updateDb = async (updatedPage: DocumentPageResult) => {
         if (!sessionId || !extractionResult) return;
-        const lines = generateLinesFromWords(updatedPage.words, updatedPage.natural_height);
-        updatedPage.text = lines.map(line => line.map(w => w.text).join(' ')).join('\n');
+        updatedPage.text = buildReadingOrderText(updatedPage.words, updatedPage.natural_height);
 
         // Copy the pages array rather than mutating the existing state object in
         // place, so React sees a new reference and dependent memos/effects re-run.

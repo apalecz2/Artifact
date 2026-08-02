@@ -83,7 +83,6 @@ export function useSetupCheck(): SetupCheck {
                             if (needPaths) {
                                 writeSetting('modelPath', paths.model_path);
                                 writeSetting('mmprojPath', paths.mmproj_path);
-                                writeSetting('llamaServerPath', paths.llama_server);
                             }
                             if (needBackend) {
                                 // Prefer the backend the wizard persisted to disk; an older

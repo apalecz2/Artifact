@@ -67,6 +67,51 @@ describe('DownloadStep', () => {
         expect(onError).not.toHaveBeenCalled();
     });
 
+    /**
+     * A failure unmounts the whole step in favour of the wizard's error screen, so
+     * the per-asset 'error' status the list used to carry was never seen by anyone
+     * — the screen showed the backend's raw text alone ("hash mismatch for
+     * cudart", or a bare transport error) and left the user to guess which of six
+     * downloads had died.
+     */
+    it('names the component that failed, not just the backend error', async () => {
+        invoke.mockImplementation((cmd: string) => {
+            if (cmd === 'get_asset_manifest') {
+                return Promise.resolve([
+                    { asset_id: 'cudart', label: 'CUDA runtime (391 MB)', size_bytes: 1, dest_path: '/a', sha256: '', url_primary: 'u', url_fallback: null, extract_to_dir: null, flatten_marker: null, installed: false, version: null },
+                ]);
+            }
+            if (cmd === 'download_file') return Promise.reject('hash mismatch for cudart');
+            return Promise.resolve(undefined);
+        });
+        const onError = vi.fn();
+        render(<DownloadStep config={config('cuda')} onComplete={vi.fn()} onError={onError} onCancel={vi.fn()} />);
+
+        await waitFor(() => expect(onError).toHaveBeenCalled());
+        const message = onError.mock.calls[0][0] as string;
+        expect(message).toContain('CUDA runtime');   // named, without its size suffix
+        expect(message).not.toContain('391 MB');
+        expect(message).toContain('hash mismatch for cudart');  // the cause is kept
+        expect(message).not.toMatch(/^Error:/);      // not a stringified Error object
+    });
+
+    it('names the component when its archive fails to unpack', async () => {
+        invoke.mockImplementation((cmd: string) => {
+            if (cmd === 'get_asset_manifest') {
+                return Promise.resolve([
+                    { asset_id: 'tesseract', label: 'Tesseract OCR', size_bytes: 1, dest_path: '/a', sha256: '', url_primary: 'u', url_fallback: null, extract_to_dir: '/out', flatten_marker: null, installed: false, version: null },
+                ]);
+            }
+            if (cmd === 'extract_archive') return Promise.reject('archive is corrupt');
+            return Promise.resolve(undefined);
+        });
+        const onError = vi.fn();
+        render(<DownloadStep config={config('cpu')} onComplete={vi.fn()} onError={onError} onCancel={vi.fn()} />);
+
+        await waitFor(() => expect(onError).toHaveBeenCalled());
+        expect(onError.mock.calls[0][0]).toContain('Tesseract OCR');
+    });
+
     it('asks for the manifest matching the chosen backend', async () => {
         render(<DownloadStep config={config('cuda')} onComplete={vi.fn()} onError={vi.fn()} onCancel={vi.fn()} />);
         await waitFor(() =>
