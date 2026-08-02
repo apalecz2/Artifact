@@ -10,9 +10,12 @@ vi.mock('@tauri-apps/api/core', () => ({
     convertFileSrc: (p: string) => convertFileSrc(p),
 }));
 
-// The hook now reads the page image itself and hands the viewer a blob URL.
+// The hook reads the page image itself and hands the viewer a blob URL; `remove`
+// is reached through discardCachedPages, which deletes the cached page renders.
+const fsRemove = vi.fn(async (_p: string) => {});
 vi.mock('@tauri-apps/plugin-fs', () => ({
     readFile: vi.fn(async () => new Uint8Array([0x89, 0x50, 0x4e, 0x47])),
+    remove: (p: string) => fsRemove(p),
 }));
 // jsdom doesn't implement object URLs; stub them so the blob path is exercisable.
 if (!('createObjectURL' in URL)) {
@@ -32,21 +35,34 @@ vi.mock('@tauri-apps/api/event', () => ({
 
 // ---- Fake DB ------------------------------------------------------------
 let cachedPages: Record<string, unknown>[] = [];
+// The completeness marker (`document_page_sets`). A cache is only readable when a
+// marker exists and its count matches the rows — see the migration note in db.ts.
+let pageSets: { page_count: number }[] = [];
 let files: { file_path: string }[] = [];
 const executed: { sql: string; binds: unknown[] }[] = [];
 
 const fakeDb = {
     select: vi.fn(async (sql: string) => {
+        if (sql.includes('document_page_sets')) return pageSets;
         if (sql.includes('FROM document_pages')) return cachedPages;
         if (sql.includes('FROM files')) return files;
         return [];
     }),
     execute: vi.fn(async (sql: string, binds: unknown[] = []) => {
         executed.push({ sql, binds });
+        // Honor the deletes the cache-discard path issues, so a read that follows
+        // one sees the cache actually gone — otherwise a retry would "reload" the
+        // rows it just dropped and never reach process_document.
+        if (sql.includes('DELETE FROM document_page_sets')) pageSets = [];
+        else if (sql.includes('DELETE FROM document_pages')) cachedPages = [];
         return { rowsAffected: 1, lastInsertId: 0 };
     }),
 };
-vi.mock('../../lib/db', () => ({ getDb: async () => fakeDb }));
+vi.mock('../../lib/db', () => ({
+    getDb: async () => fakeDb,
+    SESSION_CHILD_TABLES: ['csv_outputs', 'document_page_sets', 'document_pages', 'files'],
+}));
+vi.mock('../sessions/sessionEvents', () => ({ emitSessionChange: vi.fn() }));
 
 import { useDocumentExtraction } from './useDocumentExtraction';
 
@@ -68,14 +84,21 @@ const cachedPageRow = (words: OcrWord[]) => ({
 beforeEach(() => {
     vi.clearAllMocks();
     cachedPages = [];
+    pageSets = [];
     files = [];
     executed.length = 0;
     progressHandler = null;
 });
 
+/** Seed a *complete* cache: n page rows and a marker that agrees with them. */
+const seedCompleteCache = (rows: Record<string, unknown>[]) => {
+    cachedPages = rows;
+    pageSets = [{ page_count: rows.length }];
+};
+
 describe('useDocumentExtraction — cache', () => {
     it('restores pages from the DB cache without calling process_document', async () => {
-        cachedPages = [cachedPageRow([word('w1', 'Hello')])];
+        seedCompleteCache([cachedPageRow([word('w1', 'Hello')])]);
         const { result } = renderHook(() => useDocumentExtraction('sess', 0));
         await waitFor(() => expect(result.current.isLoading).toBe(false));
         expect(result.current.extractionResult?.pages[0].text).toBe('cached');
@@ -107,6 +130,94 @@ describe('useDocumentExtraction — cache', () => {
         // Persisted via INSERT, and a UUID id was attached to the word.
         expect(executed.some(e => e.sql.includes('INSERT OR IGNORE INTO document_pages'))).toBe(true);
         expect(result.current.extractionResult!.pages[0].words[0].id).toBeTruthy();
+    });
+
+    // A crash or force-quit partway through the per-page insert loop used to leave a
+    // short cache that looked exactly like a finished one — the document would show
+    // fewer pages than it has, permanently and silently.
+    it('reprocesses instead of trusting a cache that is short of its marker', async () => {
+        cachedPages = [cachedPageRow([word('w1', 'page one')])];
+        pageSets = [{ page_count: 3 }]; // the write was interrupted after page 1 of 3
+        files = [{ file_path: '/doc.pdf' }];
+        invoke.mockImplementation((cmd: string) =>
+            cmd === 'process_document'
+                ? Promise.resolve({ session_id: 'sess', pages: [] })
+                : Promise.resolve(undefined),
+        );
+
+        const { result } = renderHook(() => useDocumentExtraction('sess', 0));
+        await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+        expect(invoke).toHaveBeenCalledWith('process_document', { sessionId: 'sess', filePath: '/doc.pdf' });
+        // The wreckage is cleared first — rows, marker and the orphaned render.
+        expect(executed.some(e => e.sql.includes('DELETE FROM document_pages'))).toBe(true);
+        expect(executed.some(e => e.sql.includes('DELETE FROM document_page_sets'))).toBe(true);
+        expect(fsRemove).toHaveBeenCalledWith('/p1.png');
+    });
+
+    // Rows with no marker at all are the same wreckage, from a run interrupted before
+    // the marker existed.
+    it('reprocesses when page rows exist with no marker', async () => {
+        cachedPages = [cachedPageRow([word('w1', 'orphan')])];
+        pageSets = [];
+        files = [{ file_path: '/doc.pdf' }];
+        invoke.mockImplementation((cmd: string) =>
+            cmd === 'process_document'
+                ? Promise.resolve({ session_id: 'sess', pages: [] })
+                : Promise.resolve(undefined),
+        );
+
+        const { result } = renderHook(() => useDocumentExtraction('sess', 0));
+        await waitFor(() => expect(result.current.isLoading).toBe(false));
+        expect(invoke).toHaveBeenCalledWith('process_document', expect.anything());
+    });
+
+    it('writes the completeness marker only after every page row', async () => {
+        files = [{ file_path: '/doc.pdf' }];
+        invoke.mockImplementation((cmd: string) =>
+            cmd === 'process_document'
+                ? Promise.resolve({
+                    session_id: 'sess',
+                    pages: [0, 1, 2].map(i => ({
+                        image_path: `/r${i}.png`,
+                        natural_width: 1000,
+                        natural_height: 1000,
+                        text: 't',
+                        words: [],
+                    })),
+                })
+                : Promise.resolve(undefined),
+        );
+
+        const { result } = renderHook(() => useDocumentExtraction('sess', 0));
+        await waitFor(() => expect(result.current.extractionResult).not.toBeNull());
+
+        const inserts = executed.filter(e => e.sql.includes('INSERT'));
+        const marker = inserts.findIndex(e => e.sql.includes('document_page_sets'));
+        const lastPage = inserts.map(e => e.sql.includes('INSERT OR IGNORE INTO document_pages')).lastIndexOf(true);
+        expect(marker).toBeGreaterThan(lastPage);
+        // …and it records the real page count, which is what the next open checks.
+        expect(inserts[marker].binds).toEqual(['sess', 3]);
+    });
+
+    // The images' paths live in document_pages and nowhere else, so dropping the rows
+    // without them left a full set of renders on disk for every retry.
+    it('retry() deletes the cached page images before re-rendering', async () => {
+        seedCompleteCache([cachedPageRow([word('w1', 'Hello')])]);
+        files = [{ file_path: '/doc.pdf' }];
+        invoke.mockImplementation((cmd: string) =>
+            cmd === 'process_document'
+                ? Promise.resolve({ session_id: 'sess', pages: [] })
+                : Promise.resolve(undefined),
+        );
+
+        const { result } = renderHook(() => useDocumentExtraction('sess', 0));
+        await waitFor(() => expect(result.current.isLoading).toBe(false));
+        expect(fsRemove).not.toHaveBeenCalled(); // a good cache is left alone
+
+        act(() => result.current.retry());
+        await waitFor(() => expect(fsRemove).toHaveBeenCalledWith('/p1.png'));
+        expect(invoke).toHaveBeenCalledWith('process_document', { sessionId: 'sess', filePath: '/doc.pdf' });
     });
 });
 
@@ -161,7 +272,7 @@ describe('useDocumentExtraction — progress & cancel', () => {
 
 describe('useDocumentExtraction — word edits', () => {
     it('addWord appends via a copied array and bumps sessions.updated_at', async () => {
-        cachedPages = [cachedPageRow([word('w1', 'Hello')])];
+        seedCompleteCache([cachedPageRow([word('w1', 'Hello')])]);
         const { result } = renderHook(() => useDocumentExtraction('sess', 0));
         await waitFor(() => expect(result.current.extractionResult).not.toBeNull());
 
@@ -176,7 +287,7 @@ describe('useDocumentExtraction — word edits', () => {
     });
 
     it('editWord with empty text deletes the word', async () => {
-        cachedPages = [cachedPageRow([word('w1', 'Hello'), word('w2', 'World')])];
+        seedCompleteCache([cachedPageRow([word('w1', 'Hello'), word('w2', 'World')])]);
         const { result } = renderHook(() => useDocumentExtraction('sess', 0));
         await waitFor(() => expect(result.current.extractionResult).not.toBeNull());
 
@@ -190,7 +301,7 @@ describe('useDocumentExtraction — word edits', () => {
     });
 
     it('deleteWord removes the word', async () => {
-        cachedPages = [cachedPageRow([word('w1', 'Hello'), word('w2', 'World')])];
+        seedCompleteCache([cachedPageRow([word('w1', 'Hello'), word('w2', 'World')])]);
         const { result } = renderHook(() => useDocumentExtraction('sess', 0));
         await waitFor(() => expect(result.current.extractionResult).not.toBeNull());
 

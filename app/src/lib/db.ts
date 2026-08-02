@@ -12,7 +12,7 @@ let dbPromise: Promise<Database> | null = null;
 // therefore do not wrap migrations in a transaction; instead, re-running a
 // partially-applied version is a safe no-op, and user_version only advances once
 // every statement in that version has succeeded.
-const MIGRATIONS: string[][] = [
+export const MIGRATIONS: string[][] = [
     // v1: initial schema
     [
         `CREATE TABLE IF NOT EXISTS sessions (
@@ -51,12 +51,37 @@ const MIGRATIONS: string[][] = [
             UNIQUE(session_id, page_index)
         )`,
     ],
+    // v2: completeness marker for the page cache.
+    //
+    // `document_pages` rows are written one INSERT at a time — there is no usable
+    // transaction here (see the pool note above) — so a crash or force-quit partway
+    // through a long PDF left a truncated set that is indistinguishable from a
+    // finished one. The session would then show fewer pages than the document has,
+    // for good, with no error and nothing to notice. This row is written only after
+    // every page row has landed, so its presence is what makes a cache readable.
+    //
+    // A side table rather than a column on `document_pages`: SQLite has no
+    // `ALTER TABLE … ADD COLUMN IF NOT EXISTS`, so a column would throw "duplicate
+    // column" when this version is re-run after a partial apply — which the loop
+    // below does by design.
+    [
+        `CREATE TABLE IF NOT EXISTS document_page_sets (
+            session_id TEXT PRIMARY KEY,
+            page_count INTEGER NOT NULL,
+            FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        )`,
+    ],
 ];
 
 // Child tables of `sessions`, ordered so that deleting them first leaves no
 // dangling rows. deleteSession() walks this list explicitly rather than trusting
 // ON DELETE CASCADE — see the FK-pragma note on initDb().
-export const SESSION_CHILD_TABLES = ['csv_outputs', 'document_pages', 'files'] as const;
+export const SESSION_CHILD_TABLES = [
+    'csv_outputs',
+    'document_page_sets',
+    'document_pages',
+    'files',
+] as const;
 
 export async function runMigrations(db: Database): Promise<void> {
     const rows = await db.select<{ user_version: number }[]>('PRAGMA user_version');

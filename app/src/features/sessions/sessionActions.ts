@@ -2,6 +2,42 @@ import { remove } from '@tauri-apps/plugin-fs';
 import { getDb, SESSION_CHILD_TABLES } from '../../lib/db';
 import { emitSessionChange } from './sessionEvents';
 
+/**
+ * Unlink every path, tolerating the ones that aren't there.
+ *
+ * Blank paths are filtered out: a page that failed to render or OCR is stored with
+ * an empty `image_path`, and `remove('')` would surface a spurious error. The rest
+ * is best-effort — a file already gone is the outcome we wanted anyway.
+ */
+async function removeFilesBestEffort(paths: string[]): Promise<void> {
+    const unique = new Set(paths.filter(Boolean));
+    await Promise.allSettled([...unique].map(p => remove(p)));
+}
+
+/**
+ * Drop a session's cached page rows *and* the page images they point at.
+ *
+ * Deleting the rows alone orphans the PNGs: their paths are recorded nowhere else,
+ * so not even `deleteSession` can find them afterwards and they outlive the session
+ * that produced them. Every retry of a long document used to leave a full set of
+ * full-resolution renders behind.
+ *
+ * Rows first, files second — the same ordering `deleteSession` uses, and for the
+ * same reason: a failed unlink leaves the app correct (no cache, so the next open
+ * re-renders), whereas the reverse would leave rows pointing at files that are
+ * already gone.
+ */
+export async function discardCachedPages(sessionId: string): Promise<void> {
+    const db = await getDb();
+    const images = await db.select<{ image_path: string }[]>(
+        'SELECT image_path FROM document_pages WHERE session_id = $1',
+        [sessionId]
+    );
+    await db.execute('DELETE FROM document_pages WHERE session_id = $1', [sessionId]);
+    await db.execute('DELETE FROM document_page_sets WHERE session_id = $1', [sessionId]);
+    await removeFilesBestEffort(images.map(image => image.image_path));
+}
+
 export async function deleteSession(sessionId: string): Promise<void> {
     const db = await getDb();
 
@@ -29,15 +65,10 @@ export async function deleteSession(sessionId: string): Promise<void> {
     await db.execute('DELETE FROM sessions WHERE id = $1', [sessionId]);
     emitSessionChange({ deletedSessionId: sessionId });
 
-    // Filter out empty paths: a page that failed to render/OCR is stored with an
-    // empty image_path, and remove('') would surface a spurious error.
-    const uniquePaths = new Set([
+    await removeFilesBestEffort([
         ...uploadedFiles.map(f => f.file_path),
         ...generatedImages.map(p => p.image_path),
-    ].filter(Boolean));
-
-    // Best-effort -> a file that is already missing must not surface as an error.
-    await Promise.allSettled([...uniquePaths].map(p => remove(p)));
+    ]);
 }
 
 // Deletes every session and its associated rows and files. Returns the number of
@@ -61,15 +92,10 @@ export async function deleteAllSessions(): Promise<number> {
     await db.execute('DELETE FROM sessions');
     emitSessionChange({ allDeleted: true });
 
-    // Filter out empty paths: a page that failed to render/OCR is stored with an
-    // empty image_path, and remove('') would surface a spurious error.
-    const uniquePaths = new Set([
+    await removeFilesBestEffort([
         ...uploadedFiles.map(f => f.file_path),
         ...generatedImages.map(p => p.image_path),
-    ].filter(Boolean));
-
-    // Best-effort -> a file that is already missing must not surface as an error.
-    await Promise.allSettled([...uniquePaths].map(p => remove(p)));
+    ]);
 
     return sessions.length;
 }

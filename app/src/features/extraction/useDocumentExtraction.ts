@@ -4,6 +4,7 @@ import { listen } from '@tauri-apps/api/event';
 import { readFile } from '@tauri-apps/plugin-fs';
 import { getDb } from '../../lib/db';
 import { touchSession } from '../sessions/touchSession';
+import { discardCachedPages } from '../sessions/sessionActions';
 import { ExtractionResult, DocumentPageResult } from './types';
 import type { BoundingBox } from '../ocr/types';
 import { sortWords, generateLinesFromWords } from '../../utils/ocrTransforms';
@@ -50,17 +51,33 @@ export function useDocumentExtraction(sessionId: string | undefined, activePageI
 
                 // On an explicit retry, drop any cached pages so the source file is
                 // actually re-rendered (e.g. after a transient per-page failure).
+                // Goes through discardCachedPages so the page images go with the
+                // rows — nothing else records their paths, so rows deleted on their
+                // own strand the PNGs for good.
                 if (forceReprocess.current) {
-                    await db.execute('DELETE FROM document_pages WHERE session_id = $1', [sessionId]);
                     forceReprocess.current = false;
+                    await discardCachedPages(sessionId);
                 }
 
-                const cachedPages = await db.select<any[]>(
-                    'SELECT image_path, natural_width, natural_height, full_text, words_json FROM document_pages WHERE session_id = $1 ORDER BY page_index ASC',
-                    [sessionId]
-                );
+                const [cachedPages, pageSets] = await Promise.all([
+                    db.select<any[]>(
+                        'SELECT image_path, natural_width, natural_height, full_text, words_json FROM document_pages WHERE session_id = $1 ORDER BY page_index ASC',
+                        [sessionId]
+                    ),
+                    db.select<{ page_count: number }[]>(
+                        'SELECT page_count FROM document_page_sets WHERE session_id = $1',
+                        [sessionId]
+                    ),
+                ]);
 
-                if (cachedPages && cachedPages.length > 0) {
+                // The cache is usable only if it is *complete*. Pages are inserted one
+                // row at a time (no usable transaction — see db.ts), so an interrupted
+                // write leaves a short set that looks exactly like a finished one; the
+                // document would then show fewer pages than it has, permanently and
+                // silently. `document_page_sets` is written last, after every page row
+                // has landed, which is what makes its count trustworthy here.
+                const expectedPages = pageSets?.[0]?.page_count ?? null;
+                if (expectedPages !== null && (cachedPages?.length ?? 0) === expectedPages) {
                     const restoredPages: DocumentPageResult[] = cachedPages.map(page => ({
                         image_path: page.image_path,
                         natural_width: page.natural_width,
@@ -71,6 +88,15 @@ export function useDocumentExtraction(sessionId: string | undefined, activePageI
                     setExtractionResult({ session_id: sessionId, pages: restoredPages });
                     setRawTextSaved(true);
                     return;
+                }
+
+                // Rows without a matching marker are the wreckage of an interrupted
+                // write. They can't be trusted and can't be completed in place, so
+                // clear them (and their images) before re-rendering — leaving them
+                // would make the INSERT OR IGNORE below skip the very pages we are
+                // re-rendering, and strand the new images.
+                if ((cachedPages?.length ?? 0) > 0 || expectedPages !== null) {
+                    await discardCachedPages(sessionId);
                 }
 
                 const dbResult = await db.select<{ file_path: string }[]>('SELECT file_path FROM files WHERE session_id = $1 LIMIT 1', [sessionId]);
@@ -110,6 +136,15 @@ export function useDocumentExtraction(sessionId: string | undefined, activePageI
                         [crypto.randomUUID(), sessionId, i, page.image_path, page.natural_width, page.natural_height, page.text, JSON.stringify(page.words)]
                     );
                 }
+
+                // The completeness marker, written strictly last: it is what makes the
+                // cache readable at all, so it must not exist until every page row
+                // above does. Interrupt this loop anywhere and the next open finds
+                // rows with no marker, discards them, and re-renders from the source.
+                await db.execute(
+                    'INSERT OR REPLACE INTO document_page_sets (session_id, page_count) VALUES ($1, $2)',
+                    [sessionId, rustResult.pages.length]
+                );
 
                 setExtractionResult(rustResult);
                 setRawTextSaved(true);
