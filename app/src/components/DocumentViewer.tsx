@@ -413,7 +413,11 @@ const DocumentViewer = forwardRef<DocumentViewerHandle, DocumentViewerProps>(fun
                     ref={imgRef}
                     src={fileUrl}
                     alt="Document"
-                    crossOrigin="anonymous"
+                    // Deliberately no `crossOrigin`: `fileUrl` is a same-origin
+                    // blob: URL (see useDocumentExtraction.ts), so the canvas in
+                    // estimateImageDarkness stays untainted without it — and a
+                    // CORS-mode request against a blob: URL never loads at all in
+                    // WKWebView, which blanks the image *and* the overlay on macOS.
                     onLoad={handleImageLoad}
                     onError={onLoadError}
                     // Render at the image's intrinsic size; the derived transform

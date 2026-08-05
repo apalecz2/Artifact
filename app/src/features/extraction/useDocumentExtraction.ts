@@ -292,10 +292,10 @@ export function useDocumentExtraction(sessionId: string | undefined, activePageI
     // Load the active page image as a same-origin blob URL rather than handing
     // the viewer a convertFileSrc `asset://` URL. On macOS the asset protocol is
     // a WKWebView custom scheme, and the viewer's <img> needs to sample pixels on
-    // a canvas — which requires `crossOrigin`, and a crossOrigin request against
-    // the custom scheme fails CORS in WKWebView, so the image never paints.
-    // Reading the bytes ourselves sidesteps the protocol entirely and keeps the
-    // canvas same-origin on every platform.
+    // a canvas — which against that scheme means a crossOrigin request, and those
+    // fail CORS in WKWebView, so the image never paints. Reading the bytes
+    // ourselves sidesteps the protocol entirely and keeps the canvas same-origin
+    // on every platform, so the <img> must carry no `crossOrigin` at all.
     const imagePath = extractionResult?.pages[activePageIndex]?.image_path ?? null;
     const [fileUrl, setFileUrl] = useState<string | null>(null);
 
