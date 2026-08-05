@@ -7,7 +7,6 @@
 - option to collapse pannels in session
 - note on poor quality extractions -- "try fixing the OCR on the left for better results"
 - text overlaps on smaller screens in the formatted table view
-- mac the image doesn't show
 - mac the grade test image doesn't align columns correctly
 
 
@@ -417,6 +416,21 @@ Added excel export support
      sit inside `go`/`runCommand` rather than only in the `disabled` props, so the
      accelerators and macOS's native menu items — built in Rust, unable to read frontend
      state — are covered too.
+
+8. **The page image and its OCR overlay didn't render on macOS (the rest of the viewer
+   did).** A repeat of the mac-display issue, from the other half of the same fix: B#3's
+   refactor moved `fileUrl` to a same-origin `blob:` URL precisely so the viewer's `<img>`
+   would *not* need `crossOrigin`, but the `crossOrigin="anonymous"` attribute
+   (`DocumentViewer.tsx`, added earlier for the canvas darkness estimate that picks the
+   highlight color) was left in place. WKWebView never completes a CORS-mode request against
+   a `blob:` URL, so the image simply never loaded — no `onLoad`, so `naturalSize` stayed
+   `{0,0}` (which is what gates the `<svg>` overlay) and `isReady` stayed false (which holds
+   the shared transform wrapper at `opacity: 0`). One failed load, both things missing;
+   everything outside that wrapper painted normally, which is what made it look like an
+   image-specific problem rather than a load failure.
+   - **Resolved** by dropping the attribute. It bought nothing: a blob URL is same-origin, so
+     `estimateImageDarkness` can read the canvas back without it (and already falls back to
+     "light" on a `SecurityError` regardless).
 
 ### Provenance / Matching
 
