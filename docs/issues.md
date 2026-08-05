@@ -7,6 +7,8 @@
 - option to collapse pannels in session
 - note on poor quality extractions -- "try fixing the OCR on the left for better results"
 - text overlaps on smaller screens in the formatted table view
+- mac the image doesn't show
+- mac the grade test image doesn't align columns correctly
 
 
 ### Build / Packaging
@@ -55,6 +57,33 @@ version 2 and later:
 ---
 
 ## Resolved
+
+### Llama
+
+1. **`something_listening` reported a live server on ports nothing was bound to, which
+   could make orphan-reaping `kill -9` an innocent process.** It returned
+   `TcpStream::connect_timeout(..).is_ok()`, but on macOS loopback `connect` returns `Ok`
+   optimistically for a dead port and the connection is reset immediately after — holding
+   the probe socket open showed `lsof` listing only our own half of it, already `CLOSED`
+   (not a TCP self-connect: local and peer ports differed). `sweep_orphan_server` uses
+   this as the second of two signals before force-killing a recorded PID, precisely so a
+   process that inherited a recycled PID is never killed; a false positive collapsed that
+   guard to one signal.
+   - **Resolved** by requiring the connection to survive a read: a live llama-server
+     accepts and waits for a request, so the read times out (`WouldBlock`/`TimedOut` ⇒
+     alive), while a reset socket reports EOF or `ECONNRESET` at once. The bias is
+     deliberate — a false negative just leaves an orphan holding RAM until next launch, a
+     false positive kills someone else's process.
+   - **Surfaced as CI flake**, not as a user report: `pick_free_port_returns_a_bindable_port`
+     failed ~1 full-suite run in 15. The test was right and the code was wrong.
+   - **A second, unrelated race lived in the same tests**: they bound ephemeral ports
+     concurrently and stole each other's, giving `AddrInUse` on re-bind. Fixed by
+     serialising the port tests behind `PORT_TEST_LOCK`. Both fixes were needed — with the
+     lock alone, the old implementation still failed 1 run in 40.
+   - **Also corrected an assertion that could never be sound**: the old test asserted a
+     port stayed free *after* `pick_free_port` released it, which that function explicitly
+     documents it cannot promise. It now asserts only what is guaranteed.
+   - Verified 0 failures in 100 full-suite runs, against a ~6–7 expected at the old rate.
 
 ### General
 

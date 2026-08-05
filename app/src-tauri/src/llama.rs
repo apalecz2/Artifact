@@ -12,6 +12,7 @@
 //! check and request targets the server we actually spawned.
 
 use std::{
+    io::{ErrorKind, Read},
     net::{SocketAddr, TcpListener, TcpStream},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
@@ -80,14 +81,52 @@ fn pick_free_port() -> Result<u16, String> {
     Ok(port)
 }
 
+/// How long to wait for the peer to prove it is still there. A real llama-server
+/// accepts and then waits for a request, so this elapses in full on the success path —
+/// paid once, at startup, by [`sweep_orphan_server`].
+const LIVENESS_READ_TIMEOUT: Duration = Duration::from_millis(150);
+
 /// True if something is accepting connections on `127.0.0.1:port` right now. Used
 /// to decide whether a recorded PID is still a live server worth reaping.
+///
+/// **A successful `connect` is not proof of a listener.** On macOS loopback the call
+/// returns `Ok` optimistically for a port nothing is bound to, and the connection is
+/// reset immediately afterwards — the socket is already `CLOSED` by the time anyone
+/// looks at it. `lsof` on such a port shows only our own half of a dead connection.
+///
+/// That false positive matters because of the one caller: [`sweep_orphan_server`]
+/// force-kills the recorded PID when this returns true, and this check is the *only*
+/// thing standing between that `kill -9` and an innocent process that happened to
+/// inherit a recycled PID. Trusting `connect` alone collapsed that two-signal guard
+/// down to one.
+///
+/// So the connection has to survive a read. A live server holds it open with nothing
+/// to say, which times out; a reset socket reports EOF or `ECONNRESET` at once. The
+/// bias is deliberate — a false negative merely leaves an orphan holding RAM until the
+/// next launch, while a false positive kills someone else's process.
 fn something_listening(port: u16) -> bool {
-    TcpStream::connect_timeout(
+    let Ok(stream) = TcpStream::connect_timeout(
         &SocketAddr::from(([127, 0, 0, 1], port)),
         Duration::from_millis(300),
-    )
-    .is_ok()
+    ) else {
+        return false;
+    };
+
+    if stream
+        .set_read_timeout(Some(LIVENESS_READ_TIMEOUT))
+        .is_err()
+    {
+        return false;
+    }
+
+    match (&stream).read(&mut [0u8; 1]) {
+        // Nothing to read and the connection is still up: someone is holding it open.
+        Err(error) if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => true,
+        // The peer volunteered bytes, so it is unambiguously alive.
+        Ok(n) if n > 0 => true,
+        // `Ok(0)` is EOF and any other error is a reset: nothing was really there.
+        _ => false,
+    }
 }
 
 /// Best-effort, OS-native force-kill of a process tree by PID. We don't hold a
@@ -406,24 +445,95 @@ mod tests {
         assert_eq!(parse_pidfile("4321 70000"), (Some(4321), None));
     }
 
+    /// Serialises every test that takes an ephemeral port.
+    ///
+    /// These are the only places in the crate that bind a socket, and left to run
+    /// concurrently they compete for the same ephemeral range: one releases the port
+    /// `pick_free_port` just handed back, another asks for port 0 and is given that
+    /// exact port. Symptoms were an `AddrInUse` on re-bind, or a probe finding a live
+    /// listener on a port that had just been reported free.
+    ///
+    /// Serialising is the fix rather than retry-until-it-passes because the contention
+    /// is entirely self-inflicted — nothing outside this binary is fighting for these
+    /// ports, so removing the overlap removes the race outright.
+    static PORT_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    /// Poisoning here means a *sibling* port test already failed. Recovering the guard
+    /// keeps that first failure legible instead of burying it under a second panic.
+    fn port_test_guard() -> std::sync::MutexGuard<'static, ()> {
+        PORT_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Note what this does *not* assert: that the returned port is still free. It
+    /// cannot — `pick_free_port` releases the port before returning it and says so, so
+    /// its continued freedom is a property of the machine, not of this function. The
+    /// previous version asserted exactly that (via `!something_listening`), which is
+    /// why it failed intermittently for two unrelated reasons at once.
     #[test]
-    fn pick_free_port_returns_a_bindable_port() {
+    fn pick_free_port_returns_a_port_from_the_ephemeral_range() {
+        let _guard = port_test_guard();
+
         let port = pick_free_port().expect("should find a free port");
         assert!(port > 0);
-        // Nothing is listening on it yet (we only bound momentarily to discover it).
-        assert!(!something_listening(port));
+        // Two calls in a row both succeed and stay in range — enough to catch a
+        // regression that returned 0, a constant, or an error.
+        let second = pick_free_port().expect("should find a second free port");
+        assert!(second > 0);
     }
 
     #[test]
     fn something_listening_detects_a_live_listener() {
+        let _guard = port_test_guard();
+
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         assert!(something_listening(port));
-        // The negative case (nothing listening) is covered by
-        // `pick_free_port_returns_a_bindable_port`, which probes a port nothing has
-        // connected to. Asserting "not listening" here — right after a connect, then
-        // dropping the listener — is racy on macOS, where the just-closed loopback
-        // connection lingers in the accept backlog and a follow-up connect can still
-        // succeed.
+    }
+
+    /// The regression test for the false positive described on [`something_listening`].
+    ///
+    /// This failed roughly once in fifteen full-suite runs before the fix, and it was
+    /// right to: `connect` to a dead loopback port returns `Ok` on macOS, so the old
+    /// implementation reported a live server on a port nothing was bound to. The
+    /// flakiness was the bug surfacing, not the test being unreliable — holding the
+    /// probe socket open showed `lsof` listing only our own half of the connection,
+    /// already `CLOSED`.
+    ///
+    /// Repeated over several ports because the failure it guards against is
+    /// probabilistic — see the note on `something_listening_rejects_a_closed_listener`
+    /// for how weak that makes these two as regression tests.
+    #[test]
+    fn something_listening_rejects_a_port_with_no_listener() {
+        let _guard = port_test_guard();
+
+        for _ in 0..10 {
+            let port = pick_free_port().expect("should find a free port");
+            assert!(
+                !something_listening(port),
+                "reported a live listener on port {port}, which nothing is bound to"
+            );
+        }
+    }
+
+    /// A listener that goes away must stop being reported as live, or
+    /// `sweep_orphan_server` would skip reaping the very orphan it exists to clean up.
+    ///
+    /// **Honest limits of this as a regression test.** Reverting `something_listening`
+    /// to its old `connect(..).is_ok()` form and running the full suite 40 times failed
+    /// here once — and running this test *alone* 30 times never failed at all. The
+    /// underlying quirk only shows up under the whole suite's concurrent port churn, so
+    /// these two tests document the contract and will eventually catch a regression,
+    /// but they will not catch one on the first run. The argument for the current
+    /// implementation rests on it being correct by construction (a connection that
+    /// cannot survive a read was never a live server), not on this test's teeth.
+    #[test]
+    fn something_listening_rejects_a_closed_listener() {
+        let _guard = port_test_guard();
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        assert!(something_listening(port));
+        drop(listener);
+        assert!(!something_listening(port));
     }
 }

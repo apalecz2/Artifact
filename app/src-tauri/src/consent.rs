@@ -66,7 +66,10 @@ pub fn write_consent_record(
     fs::create_dir_all(&dir)
         .map_err(|error| format!("failed to create AppData directory: {error}"))?;
 
-    let record = ConsentRecord { version, accepted_at };
+    let record = ConsentRecord {
+        version,
+        accepted_at,
+    };
     let json = serde_json::to_string_pretty(&record)
         .map_err(|error| format!("failed to serialize consent record: {error}"))?;
 
@@ -85,7 +88,10 @@ mod tests {
             accepted_at: "2026-08-04T12:00:00.000Z".into(),
         };
         let json = serde_json::to_string(&record).unwrap();
-        assert_eq!(serde_json::from_str::<ConsentRecord>(&json).unwrap(), record);
+        assert_eq!(
+            serde_json::from_str::<ConsentRecord>(&json).unwrap(),
+            record
+        );
     }
 
     // The read path has to fail closed: anything it cannot parse is "no consent
@@ -93,7 +99,10 @@ mod tests {
     #[test]
     fn malformed_json_is_not_a_record() {
         for bad in ["", "{}", "not json", r#"{"version":"2026-08-04"}"#] {
-            assert!(serde_json::from_str::<ConsentRecord>(bad).is_err(), "parsed: {bad}");
+            assert!(
+                serde_json::from_str::<ConsentRecord>(bad).is_err(),
+                "parsed: {bad}"
+            );
         }
     }
 }
