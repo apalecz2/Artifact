@@ -4,6 +4,7 @@ import AnchorMark from './components/AnchorMark';
 import Markdown from './legal/Markdown';
 import { LEGAL_DOCS, type LegalDocId } from './legal/legalContent';
 import { syncFaviconToSystemTheme } from './favicon';
+import { copyrightYears } from './copyright';
 
 /**
  * Standalone legal page rendered at /privacy, /terms, and /licenses — the stable,
@@ -71,7 +72,9 @@ export default function LegalPage({ doc }: { doc: LegalDocId }): React.ReactElem
 
                 <footer className="border-t border-outline-variant bg-surface">
                     <div className="max-w-5xl mx-auto px-5 sm:px-8 py-8 flex flex-col sm:flex-row items-center justify-between gap-3 font-body-sm text-body-sm text-on-surface-variant">
-                        <span>Anchor · © 2026 Aiden Paleczny</span>
+                        <span>
+                            Anchor · © {copyrightYears()} Aiden Paleczny · Licensed under the Elastic License 2.0.
+                        </span>
                         <div className="flex items-center gap-5">
                             <a href="/privacy" className="hover:text-on-surface transition-colors no-underline">Privacy</a>
                             <a href="/terms" className="hover:text-on-surface transition-colors no-underline">Terms</a>

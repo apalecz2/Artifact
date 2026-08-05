@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { LEGAL_ROUTE_PATHS } from './src/legal/legalRoutes';
+import { ALL_LEGAL_ROUTE_PATHS } from './src/legal/legalRoutes';
 
 // The legal pages live at clean URLs (/privacy, /terms, /licenses) that the Store
 // listing and the desktop app link to. This is a single-page app, so those paths
@@ -17,6 +17,10 @@ import { LEGAL_ROUTE_PATHS } from './src/legal/legalRoutes';
 // client router in src/main.tsx then renders the right page from window.location.
 //
 // The copy uses the *generated* index.html so its hashed asset references are correct.
+//
+// Alias paths (/notices) are emitted too, not just the canonical ones. A legacy URL is
+// only ever reached by a direct visit — exactly the case a client-side-only alias 404s
+// on — so resolving it in the router alone was no help at all.
 function prerenderLegalRoutes(): Plugin {
     let outDir = 'dist';
     return {
@@ -28,7 +32,7 @@ function prerenderLegalRoutes(): Plugin {
         closeBundle() {
             const index = resolve(outDir, 'index.html');
             if (!existsSync(index)) return;
-            for (const route of Object.values(LEGAL_ROUTE_PATHS)) {
+            for (const route of ALL_LEGAL_ROUTE_PATHS) {
                 const dir = resolve(outDir, route.replace(/^\/+/, ''));
                 mkdirSync(dir, { recursive: true });
                 copyFileSync(index, resolve(dir, 'index.html'));

@@ -15,10 +15,20 @@ export const LEGAL_ROUTE_PATHS: Record<LegalDocId, string> = {
     licenses: '/licenses',
 };
 
-/** Legacy/alias paths that resolve to a doc but have no dedicated static page. */
+/** Legacy/alias paths that resolve to a doc. These are pre-rendered as static files
+ *  too (see `ALL_LEGAL_ROUTE_PATHS`) — a client-side alias alone would 404 on a direct
+ *  visit or a refresh, which is the only way anyone reaches a legacy URL. main.tsx
+ *  rewrites the address bar to the canonical path once the page loads. */
 const LEGAL_PATH_ALIASES: Record<string, LegalDocId> = {
     '/notices': 'licenses',
 };
+
+/** Every path the build must emit a static file for: the canonical routes plus the
+ *  aliases. Consumed by the pre-render plugin in vite.config.ts. */
+export const ALL_LEGAL_ROUTE_PATHS: string[] = [
+    ...Object.values(LEGAL_ROUTE_PATHS),
+    ...Object.keys(LEGAL_PATH_ALIASES),
+];
 
 /** Map a browser pathname to a legal doc id, or null for the marketing page. */
 export function docIdForPath(pathname: string): LegalDocId | null {

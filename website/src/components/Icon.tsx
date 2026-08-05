@@ -5,15 +5,38 @@ export interface IconProps {
     name: string;
     /** Font size in px. Omit to inherit the surrounding font size. */
     size?: number;
-    /** FILL axis: 0 = outlined, 1 = filled. Omit to use the font default. */
+    /**
+     * FILL axis: 0 = outlined, 1 = filled. **Currently inert** — see `PIN_AXES`
+     * below. Every icon renders outlined, as it always has.
+     */
     fill?: 0 | 1;
-    /** Optical weight (`wght`) axis, e.g. 300. Omit to use the font default. */
+    /**
+     * Optical weight (`wght`) axis, e.g. 300. **Currently inert** — see
+     * `PIN_AXES` below. Every icon renders at weight 400, as it always has.
+     */
     weight?: number;
     /** Extra classes for colour, animation, or layout (e.g. "text-primary animate-spin"). */
     className?: string;
     /** Decorative by default; pass `false` only when the glyph itself is the label. */
     'aria-hidden'?: boolean;
 }
+
+/**
+ * When true, `fill` and `weight` are ignored and every glyph renders at the axis
+ * values pinned in theme.css (`FILL 0, wght 400, GRAD 0, opsz 24`).
+ *
+ * This preserves how the site has always looked, which is *not* the same as what
+ * the call sites ask for. The Google-hosted stylesheet requested single axis
+ * values (`…@24,400,0,0`), so the font it served was instanced at that point —
+ * the axes were baked into the file and `font-variation-settings` could not move
+ * them. Every `weight={300}` on this site has therefore been a no-op for as long
+ * as it has been there. Self-hosting ships the full variable font with the axes
+ * live, which would silently thin them all.
+ *
+ * Set to false to let the props take effect — a deliberate visual change to
+ * review icon by icon, not a bug fix. Mirrors app/src/components/Icon.tsx.
+ */
+const PIN_AXES: boolean = true;
 
 /**
  * Material Symbols icon span, copied verbatim from the Anchor app
@@ -27,13 +50,21 @@ export function Icon({
     className = '',
     'aria-hidden': ariaHidden = true,
 }: IconProps): React.ReactElement {
+    // Only the axes the caller set are emitted, so the theme.css pin supplies the
+    // rest. `font-variation-settings` is replaced wholesale rather than merged,
+    // so emitting a partial value here would drop the unnamed axes to the font's
+    // own defaults (opsz 48) instead of inheriting the pinned ones.
     const axes: string[] = [];
-    if (fill !== undefined) axes.push(`'FILL' ${fill}`);
-    if (weight !== undefined) axes.push(`'wght' ${weight}`);
+    if (!PIN_AXES) {
+        if (fill !== undefined) axes.push(`'FILL' ${fill}`);
+        if (weight !== undefined) axes.push(`'wght' ${weight}`);
+    }
 
     const style: React.CSSProperties = {};
     if (size !== undefined) style.fontSize = `${size}px`;
-    if (axes.length) style.fontVariationSettings = axes.join(', ');
+    if (axes.length) {
+        style.fontVariationSettings = `${axes.join(', ')}, 'GRAD' 0, 'opsz' 24`;
+    }
 
     return (
         <span

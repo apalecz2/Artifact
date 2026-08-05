@@ -22,9 +22,9 @@
 ### Legal / Copy
 
 - proof read all text
-- re verify all legal related content
-  - including how it is just in the app with notes on ai output
 - do the terms and conditions need the user to have scrolled through them to accept?
+- subset the Material Symbols font: the website now self-hosts it too (H1 below), so the
+  full 4 MB icon font is served to every visitor, not just shipped in the installer
 
 ### Website
 

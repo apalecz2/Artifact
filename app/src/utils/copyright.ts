@@ -1,5 +1,9 @@
-// Copyright year for in-app notices. Mirrors the website footer's rule
-// (website/src/App.tsx) so the two never disagree about the same claim.
+// Copyright year for in-app notices. Mirrors the website's rule
+// (website/src/copyright.ts, a byte-for-byte copy of this logic) so the two never
+// disagree about the same claim. They did once: the website used an equality check
+// that printed a reversed "2026-2025" range on a skewed clock, and the legal pages
+// carried a third, hard-coded year. The website is a separate npm package with no
+// path into app/, so this stays a copy rather than a shared import — change both.
 
 /** First year Anchor was published. Change this only to correct the true
  *  founding date; the end of the range is computed at render time. */

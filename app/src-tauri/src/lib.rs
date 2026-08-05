@@ -1,3 +1,4 @@
+mod consent;
 mod export;
 mod hardware;
 mod install;
@@ -167,6 +168,9 @@ pub fn run() {
             // Data removal (Settings ▸ Data)
             reset::remove_all_app_data,
             reset::quit_app,
+            // Clickwrap consent record (mirrors localStorage to AppData)
+            consent::read_consent_record,
+            consent::write_consent_record,
             // Title bar / View menu
             zoom::set_app_zoom,
             zoom::get_app_zoom,

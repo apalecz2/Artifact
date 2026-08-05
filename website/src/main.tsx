@@ -1,5 +1,16 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+// Self-hosted fonts, bundled into the build — the same three packages, imported
+// the same way, as app/src/main.tsx. These were <link>s to fonts.googleapis.com /
+// fonts.gstatic.com, which made every visit send the visitor's IP and user-agent
+// to Google. The Privacy Policy (§4) tells visitors this site loads no
+// third-party resources, so the links had to go rather than be disclosed: the
+// site now serves its own fonts and makes no cross-origin request at all.
+// Imported here rather than from theme.css so Vite resolves the bare specifiers
+// itself (Tailwind v4 owns the @import graph in that file).
+import '@fontsource-variable/inter';
+import '@fontsource-variable/source-serif-4';
+import 'material-symbols/outlined.css';
 import App from './App';
 import LegalPage from './LegalPage';
 import { docIdForPath, LEGAL_DOCS } from './legal/legalContent';

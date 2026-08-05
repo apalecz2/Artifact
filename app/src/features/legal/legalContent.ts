@@ -9,10 +9,21 @@ import noticesMarkdown from '../../../../NOTICES.md?raw';
 
 export { privacyMarkdown, eulaMarkdown, noticesMarkdown };
 
-// Bump whenever the EULA's substance changes. Must match the EULA's effective date
-// so a user who accepted an older version is re-prompted to accept the new one
-// (see eulaAcceptance.ts). Keep in sync with the "Effective date" line in EULA.md.
-export const EULA_VERSION = '2026-07-20';
+/**
+ * The version string recorded when a user accepts the terms. It must equal the
+ * "Effective date" line in EULA.md, so the consent record names the document the
+ * user was actually shown — that record is the evidence the clickwrap exists for,
+ * and it is worthless if it cites a version that was never displayed. A bump also
+ * invalidates older acceptances, which is what re-prompts users after a revision
+ * (see eulaAcceptance.ts).
+ *
+ * This drifted once: the effective date moved 2026-07-20 -> 2026-07-23 while this
+ * constant stayed behind, so that revision shipped without re-prompting anyone and
+ * every record written pointed at a superseded document. `legalContent.test.ts`
+ * now parses the date out of the bundled markdown and fails if the two disagree —
+ * edit the date in EULA.md and this constant together, or the test will say so.
+ */
+export const EULA_VERSION = '2026-08-04';
 
 export type LegalDocId = 'privacy' | 'terms' | 'notices';
 

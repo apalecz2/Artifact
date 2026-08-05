@@ -37,8 +37,13 @@ export default function App() {
     // download -- the wizard orders its own steps that way (see SetupWizard). Consent
     // is re-asked only if the user has never accepted the current EULA version, in
     // which case the wizard may consist of that step alone (see eulaAcceptance.ts).
-    const { accepted, accept } = useEulaAcceptance();
-    const { isComplete, isLoading, canCancelRerun, cancelRerun } = useSetupCheck();
+    const { accepted, loading: eulaLoading, accept } = useEulaAcceptance();
+    const { isComplete, isLoading: setupLoading, canCancelRerun, cancelRerun } = useSetupCheck();
+    // Both probes run concurrently; the spinner covers whichever finishes last. The
+    // consent one only runs at all when localStorage came up empty, and it exists so a
+    // user whose webview storage was cleared isn't flashed a consent prompt before the
+    // AppData record restores it (see eulaAcceptance.ts).
+    const isLoading = eulaLoading || setupLoading;
 
     // The spinner and the wizard below render *instead of* the router, so while
     // either is up there is nowhere for the title bar's back/forward buttons and

@@ -2,6 +2,7 @@ import React from 'react';
 import Icon from './components/Icon';
 import AnchorMark from './components/AnchorMark';
 import { syncFaviconToSystemTheme } from './favicon';
+import { copyrightYears } from './copyright';
 
 /* ─────────────────────────────────────────────────────────────────────────
    Project links. These are the only values you'll likely need to edit before
@@ -20,10 +21,6 @@ const LINKS = {
      *  it does not actually run on Intel Macs. Unsigned for now. */
     macDownload: 'https://github.com/apalecz2/anchor/releases/latest',
 };
-
-/** Footer copyright start year. Update only if this ever needs to reflect an
- *  earlier true founding date; the current year is computed at render time. */
-const FOUNDED_YEAR = 2026;
 
 const NAV = [
     { href: '#features', label: 'Features' },
@@ -988,6 +985,23 @@ export default function App(): React.ReactElement {
                                 note="Installer via GitHub Releases (Unsigned for now)."
                             />
                         </div>
+                        {/* The in-app clickwrap is the actual gate — nothing downloads or
+                            runs before it is accepted — but a download here bypasses the
+                            Store, so the terms are named at the point of download too
+                            rather than only in the footer. */}
+                        <p className="font-body-sm text-body-sm text-on-surface-variant">
+                            By downloading and installing Anchor you agree to the{' '}
+                            <a href="/terms" className="text-primary underline underline-offset-2">
+                                Terms of Use &amp; EULA
+                            </a>{' '}
+                            and the{' '}
+                            <a href="/privacy" className="text-primary underline underline-offset-2">
+                                Privacy Policy
+                            </a>. You will be asked to accept them on first launch, before anything is
+                            downloaded. Anchor extracts data using a local AI model, so verify results
+                            against your source document before relying on them.
+                        </p>
+
                         <div className="rounded-[10px] border border-outline-variant bg-surface-container p-6">
                             <p className="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-4">System requirements</p>
                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-y-3 gap-x-6">
@@ -1028,8 +1042,7 @@ export default function App(): React.ReactElement {
                         <div className="border-t border-outline-variant pt-6 flex flex-col gap-3 text-center sm:text-left font-body-sm text-body-sm text-on-surface-variant">
                             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
                                 <span>
-                                    © {FOUNDED_YEAR === new Date().getFullYear() ? FOUNDED_YEAR : `${FOUNDED_YEAR}-${new Date().getFullYear()}`}{' '}
-                                    Aiden Paleczny · Licensed under the Elastic License 2.0.
+                                    © {copyrightYears()} Aiden Paleczny · Licensed under the Elastic License 2.0.
                                 </span>
                                 <span className="text-on-surface-variant">
                                     Copyright or security concerns:{' '}

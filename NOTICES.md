@@ -13,9 +13,13 @@ setup wizard from `anchor-assets.aidenpaleczny.com` (a mirror operated by the au
 Hugging Face as fallback for the model files) and verified against pinned SHA-256 digests
 before use. They are listed in §1.
 
-*Last regenerated: 2026-07-13. Regenerate the package tables (§2–§3) whenever dependencies
-change: `npx license-checker --production --csv` in `app/`, and
-`cargo metadata --format-version 1` in `app/src-tauri/`.*
+*Last regenerated: 2026-08-04. Regenerate the package tables (§2–§3) whenever dependencies
+change: `npm ls --omit=dev --all --json` in `app/`, and `cargo metadata --format-version 1`
+in `app/src-tauri/`. §3 is reconciled by name **and version** against `cargo metadata` —
+718 rows for 718 packages as of this regeneration, with no entry missing, extra, or
+carrying a license string that disagrees with the crate's own manifest. Adding a
+dependency on either side, or a font, is a change to this file; §2.1 in particular is easy
+to miss because font packages carry obligations the table format does not express.*
 
 ---
 
@@ -132,6 +136,7 @@ Each package is used under the license shown (where a package offers a choice su
 | Package | License | Repository |
 |---|---|---|
 | @tauri-apps/api@2.11.0 | Apache-2.0 OR MIT | https://github.com/tauri-apps/tauri |
+| @tauri-apps/plugin-clipboard-manager@2.3.2 | MIT OR Apache-2.0 | https://github.com/tauri-apps/plugins-workspace |
 | @tauri-apps/plugin-dialog@2.7.1 | MIT OR Apache-2.0 | https://github.com/tauri-apps/plugins-workspace |
 | @tauri-apps/plugin-fs@2.5.1 | MIT OR Apache-2.0 | https://github.com/tauri-apps/plugins-workspace |
 | @tauri-apps/plugin-opener@2.5.4 | MIT OR Apache-2.0 | https://github.com/tauri-apps/plugins-workspace |
@@ -147,7 +152,53 @@ Each package is used under the license shown (where a package offers a choice su
 
 Build-time-only tooling (Vite, Rollup, esbuild, TypeScript, LightningCSS, PostCSS, etc.)
 is not distributed with the application; it is listed in `app/package.json` and used under
-its respective MIT/ISC/MPL-2.0 licenses.
+its respective MIT/ISC/MPL-2.0 licenses. (`tailwindcss` and `@tailwindcss/vite` sit in
+`dependencies` rather than `devDependencies`, so their build-only subtree — `lightningcss`,
+`jiti`, `enhanced-resolve`, `postcss`, and the platform-native `@tailwindcss/oxide-*` and
+`@rollup/rollup-*` binaries — appears in a production `npm ls`. None of it ships.)
+
+### 2.1 Fonts and icon set
+
+These are **font binaries redistributed inside the application installer and inside the
+website build**, not merely build inputs, so their notices are reproduced here in full
+rather than being covered by the table above. Both text faces are under the SIL Open Font
+License 1.1, whose clause 1 requires this notice and the license text to accompany the
+Font Software; the license text is in [Appendix E](#appendix-e-sil-open-font-license-11).
+
+| Component | Package | License | Upstream |
+|---|---|---|---|
+| Inter (variable) | `@fontsource-variable/inter@5.3.0` | OFL-1.1 | <https://github.com/rsms/inter> |
+| Source Serif 4 (variable) | `@fontsource-variable/source-serif-4@5.3.0` | OFL-1.1 | <https://github.com/adobe-fonts/source-serif> |
+| Material Symbols Outlined | `material-symbols@0.45.9` | Apache-2.0 | <https://github.com/google/material-design-icons> |
+
+Required attributions, reproduced verbatim from each package's `LICENSE`:
+
+```
+Inter:
+Copyright 2016 The Inter Project Authors (https://github.com/rsms/inter)
+Inter-Italic[opsz,wght].ttf: Copyright 2016 The Inter Project Authors
+(https://github.com/rsms/inter)
+
+Source Serif 4:
+Google Inc.
+(Source Serif is Copyright 2014-2023 Adobe Systems Incorporated
+<http://www.adobe.com/>, with Reserved Font Name 'Source'. Redistributed via the
+Google Fonts collection, which is the source Fontsource packages from.)
+```
+
+Material Symbols is licensed under the Apache License 2.0
+([Appendix A](#appendix-a-apache-license-20)), Copyright Google LLC. Upstream ships no
+separate `NOTICE` file (verified 2026-08-04), so Apache-2.0 §4(d) adds no further
+reproduction requirement. The `.woff2` files are redistributed unmodified.
+
+Fontsource repackages upstream font files without modifying the outlines; the packaging
+metadata and CSS are MIT, and the font binaries retain the licenses above.
+
+**These fonts are self-hosted deliberately.** Both the app and the website previously
+`<link>`ed them from `fonts.googleapis.com`/`fonts.gstatic.com`, which sent every user's
+IP address and user-agent to a third party — incompatible with the on-device claim in the
+app and with §4 of the Privacy Policy on the website. Do not reintroduce a remote font
+origin; see the comments in `app/src/main.tsx` and `website/src/main.tsx`.
 
 ---
 
@@ -155,7 +206,7 @@ its respective MIT/ISC/MPL-2.0 licenses.
 
 All crates below are statically linked into the shipped executable and used under the
 license shown (for multi-licensed crates, the first permissive option, MIT where
-offered, is elected). Generated from `cargo metadata`; 699 crates.
+offered, is elected). Generated from `cargo metadata`; 718 crates.
 
 | Crate | Version | License | Repository |
 |---|---|---|---|
@@ -171,6 +222,7 @@ offered, is elected). Generated from `cargo metadata`; 699 crates.
 | android_system_properties | 0.1.5 | MIT/Apache-2.0 | https://github.com/nical/android_system_properties |
 | anyhow | 1.0.102 | MIT OR Apache-2.0 | https://github.com/dtolnay/anyhow |
 | arbitrary | 1.4.2 | MIT OR Apache-2.0 | https://github.com/rust-fuzz/arbitrary/ |
+| arboard | 3.6.1 | MIT OR Apache-2.0 | https://github.com/1Password/arboard |
 | arg_enum_proc_macro | 0.3.4 | MIT | https://github.com/lu-zero/arg_enum_proc_macro |
 | arrayvec | 0.7.6 | MIT OR Apache-2.0 | https://github.com/bluss/arrayvec |
 | as-slice | 0.2.1 | MIT OR Apache-2.0 | https://github.com/japaric/as-slice |
@@ -234,6 +286,7 @@ offered, is elected). Generated from `cargo metadata`; 699 crates.
 | cfg_aliases | 0.2.1 | MIT | https://github.com/katharostech/cfg_aliases |
 | chrono | 0.4.44 | MIT OR Apache-2.0 | https://github.com/chronotope/chrono |
 | cipher | 0.4.4 | MIT OR Apache-2.0 | https://github.com/RustCrypto/traits |
+| clipboard-win | 5.4.1 | BSL-1.0 | https://github.com/DoumanAsh/clipboard-win |
 | color_quant | 1.1.0 | MIT | https://github.com/image-rs/color_quant.git |
 | combine | 4.6.7 | MIT | https://github.com/Marwes/combine |
 | concurrent-queue | 2.5.0 | Apache-2.0 OR MIT | https://github.com/smol-rs/concurrent-queue |
@@ -280,6 +333,7 @@ offered, is elected). Generated from `cargo metadata`; 699 crates.
 | dlopen2_derive | 0.4.3 | MIT | https://github.com/OpenByteDev/dlopen2 |
 | dom_query | 0.27.0 | MIT | https://github.com/niklak/dom_query |
 | dotenvy | 0.15.7 | MIT | https://github.com/allan2/dotenvy |
+| downcast-rs | 1.2.1 | MIT/Apache-2.0 | https://github.com/marcianx/downcast-rs |
 | dpi | 0.1.2 | Apache-2.0 AND MIT | https://github.com/rust-windowing/winit |
 | dtoa | 1.0.11 | MIT OR Apache-2.0 | https://github.com/dtolnay/dtoa |
 | dtoa-short | 0.3.5 | MPL-2.0 | https://github.com/upsuper/dtoa-short |
@@ -299,6 +353,7 @@ offered, is elected). Generated from `cargo metadata`; 699 crates.
 | equivalent | 1.0.2 | Apache-2.0 OR MIT | https://github.com/indexmap-rs/equivalent |
 | erased-serde | 0.4.10 | MIT OR Apache-2.0 | https://github.com/dtolnay/erased-serde |
 | errno | 0.3.14 | MIT OR Apache-2.0 | https://github.com/lambda-fairy/rust-errno |
+| error-code | 3.3.2 | BSL-1.0 | https://github.com/DoumanAsh/error-code |
 | etcetera | 0.8.0 | MIT OR Apache-2.0 | https://github.com/lunacookies/etcetera |
 | event-listener | 5.4.1 | Apache-2.0 OR MIT | https://github.com/smol-rs/event-listener |
 | event-listener-strategy | 0.5.4 | Apache-2.0 OR MIT | https://github.com/smol-rs/event-listener-strategy |
@@ -309,6 +364,7 @@ offered, is elected). Generated from `cargo metadata`; 699 crates.
 | field-offset | 0.3.6 | MIT OR Apache-2.0 | https://github.com/Diggsey/rust-field-offset |
 | filetime | 0.2.29 | MIT/Apache-2.0 | https://github.com/alexcrichton/filetime |
 | find-msvc-tools | 0.1.9 | MIT OR Apache-2.0 | https://github.com/rust-lang/cc-rs |
+| fixedbitset | 0.5.7 | MIT OR Apache-2.0 | https://github.com/petgraph/fixedbitset |
 | flate2 | 1.1.9 | MIT OR Apache-2.0 | https://github.com/rust-lang/flate2-rs |
 | flume | 0.11.1 | Apache-2.0/MIT | https://github.com/zesterer/flume |
 | fnv | 1.0.7 | Apache-2.0 / MIT | https://github.com/servo/rust-fnv |
@@ -337,6 +393,7 @@ offered, is elected). Generated from `cargo metadata`; 699 crates.
 | gdkx11 | 0.18.2 | MIT | https://github.com/gtk-rs/gtk3-rs |
 | gdkx11-sys | 0.18.2 | MIT | https://github.com/gtk-rs/gtk3-rs |
 | generic-array | 0.14.7 | MIT | https://github.com/fizyk20/generic-array.git |
+| gethostname | 1.1.0 | Apache-2.0 | https://codeberg.org/swsnr/gethostname.rs.git |
 | getrandom | 0.2.17 | MIT OR Apache-2.0 | https://github.com/rust-random/getrandom |
 | getrandom | 0.3.4 | MIT OR Apache-2.0 | https://github.com/rust-random/getrandom |
 | getrandom | 0.4.2 | MIT OR Apache-2.0 | https://github.com/rust-random/getrandom |
@@ -491,6 +548,7 @@ offered, is elected). Generated from `cargo metadata`; 699 crates.
 | pdfium-render | 0.8.37 | MIT OR Apache-2.0 | https://github.com/ajrcarey/pdfium-render |
 | pem-rfc7468 | 0.7.0 | Apache-2.0 OR MIT | https://github.com/RustCrypto/formats/tree/master/pem-rfc7468 |
 | percent-encoding | 2.3.2 | MIT OR Apache-2.0 | https://github.com/servo/rust-url/ |
+| petgraph | 0.8.3 | MIT OR Apache-2.0 | https://github.com/petgraph/petgraph |
 | phf | 0.13.1 | MIT | https://github.com/rust-phf/rust-phf |
 | phf_codegen | 0.13.1 | MIT | https://github.com/rust-phf/rust-phf |
 | phf_generator | 0.13.1 | MIT | https://github.com/rust-phf/rust-phf |
@@ -526,6 +584,7 @@ offered, is elected). Generated from `cargo metadata`; 699 crates.
 | qoi | 0.4.1 | MIT/Apache-2.0 | https://github.com/aldanor/qoi-rust |
 | quick-error | 2.0.1 | MIT/Apache-2.0 | http://github.com/tailhook/quick-error |
 | quick-xml | 0.39.4 | MIT | https://github.com/tafia/quick-xml |
+| quick-xml | 0.41.0 | MIT | https://github.com/tafia/quick-xml |
 | quinn | 0.11.9 | MIT OR Apache-2.0 | https://github.com/quinn-rs/quinn |
 | quinn-proto | 0.11.14 | MIT OR Apache-2.0 | https://github.com/quinn-rs/quinn |
 | quinn-udp | 0.5.14 | MIT OR Apache-2.0 | https://github.com/quinn-rs/quinn |
@@ -647,6 +706,7 @@ offered, is elected). Generated from `cargo metadata`; 699 crates.
 | tauri-codegen | 2.6.2 | Apache-2.0 OR MIT | https://github.com/tauri-apps/tauri |
 | tauri-macros | 2.6.2 | Apache-2.0 OR MIT | https://github.com/tauri-apps/tauri |
 | tauri-plugin | 2.6.2 | Apache-2.0 OR MIT | https://github.com/tauri-apps/tauri |
+| tauri-plugin-clipboard-manager | 2.3.2 | Apache-2.0 OR MIT | https://github.com/tauri-apps/plugins-workspace |
 | tauri-plugin-dialog | 2.7.1 | Apache-2.0 OR MIT | https://github.com/tauri-apps/plugins-workspace |
 | tauri-plugin-fs | 2.5.1 | Apache-2.0 OR MIT | https://github.com/tauri-apps/plugins-workspace |
 | tauri-plugin-opener | 2.5.4 | Apache-2.0 OR MIT | https://github.com/tauri-apps/plugins-workspace |
@@ -693,6 +753,7 @@ offered, is elected). Generated from `cargo metadata`; 699 crates.
 | tracing-attributes | 0.1.31 | MIT | https://github.com/tokio-rs/tracing |
 | tracing-core | 0.1.36 | MIT | https://github.com/tokio-rs/tracing |
 | tray-icon | 0.23.1 | MIT OR Apache-2.0 | https://github.com/tauri-apps/tray-icon |
+| tree_magic_mini | 3.2.2 | MIT | https://github.com/mbrubeck/tree_magic |
 | try-lock | 0.2.5 | MIT | https://github.com/seanmonstar/try-lock |
 | typed-path | 0.12.3 | MIT OR Apache-2.0 | https://github.com/chipsenkbeil/typed-path |
 | typeid | 1.0.3 | MIT OR Apache-2.0 | https://github.com/dtolnay/typeid |
@@ -739,6 +800,12 @@ offered, is elected). Generated from `cargo metadata`; 699 crates.
 | wasm-streams | 0.4.2 | MIT OR Apache-2.0 | https://github.com/MattiasBuelens/wasm-streams/ |
 | wasm-streams | 0.5.0 | MIT OR Apache-2.0 | https://github.com/MattiasBuelens/wasm-streams/ |
 | wasmparser | 0.244.0 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | https://github.com/bytecodealliance/wasm-tools/tree/main/crates/wasmparser |
+| wayland-backend | 0.3.16 | MIT | https://github.com/smithay/wayland-rs |
+| wayland-client | 0.31.15 | MIT | https://github.com/smithay/wayland-rs |
+| wayland-protocols | 0.32.13 | MIT | https://github.com/smithay/wayland-rs |
+| wayland-protocols-wlr | 0.3.12 | MIT | https://github.com/smithay/wayland-rs |
+| wayland-scanner | 0.31.11 | MIT | https://github.com/smithay/wayland-rs |
+| wayland-sys | 0.31.11 | MIT | https://github.com/smithay/wayland-rs |
 | web-sys | 0.3.99 | MIT OR Apache-2.0 | https://github.com/wasm-bindgen/wasm-bindgen/tree/master/crates/web-sys |
 | web-time | 1.1.0 | MIT OR Apache-2.0 | https://github.com/daxpedda/web-time |
 | web_atoms | 0.2.4 | MIT OR Apache-2.0 | https://github.com/servo/html5ever |
@@ -822,11 +889,14 @@ offered, is elected). Generated from `cargo metadata`; 699 crates.
 | wit-bindgen-rust-macro | 0.51.0 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | https://github.com/bytecodealliance/wit-bindgen |
 | wit-component | 0.244.0 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | https://github.com/bytecodealliance/wasm-tools/tree/main/crates/wit-component |
 | wit-parser | 0.244.0 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | https://github.com/bytecodealliance/wasm-tools/tree/main/crates/wit-parser |
+| wl-clipboard-rs | 0.9.3 | MIT/Apache-2.0 | https://github.com/YaLTeR/wl-clipboard-rs |
 | writeable | 0.6.3 | Unicode-3.0 | https://github.com/unicode-org/icu4x |
 | wry | 0.55.1 | Apache-2.0 OR MIT | https://github.com/tauri-apps/wry |
 | wyz | 0.5.1 | MIT | https://github.com/myrrlyn/wyz |
 | x11 | 2.21.0 | MIT | https://github.com/AltF02/x11-rs.git |
 | x11-dl | 2.21.0 | MIT | https://github.com/AltF02/x11-rs.git |
+| x11rb | 0.13.2 | MIT OR Apache-2.0 | https://github.com/psychon/x11rb |
+| x11rb-protocol | 0.13.2 | MIT OR Apache-2.0 | https://github.com/psychon/x11rb |
 | xattr | 1.6.1 | MIT OR Apache-2.0 | https://github.com/Stebalien/xattr |
 | xz2 | 0.1.7 | MIT/Apache-2.0 | https://github.com/alexcrichton/xz2-rs |
 | y4m | 0.8.0 | MIT | https://github.com/image-rs/y4m.git |
@@ -1163,3 +1233,100 @@ URL listed in its table row. Full text: <https://www.mozilla.org/en-US/MPL/2.0/>
 equivalent, full texts at SPDX: 0BSD, BSL-1.0 (<https://spdx.org/licenses/BSL-1.0.html>),
 CC0-1.0, MIT-0, NCSA, Unlicense, CDLA-Permissive-2.0, and Apache-2.0 WITH LLVM-exception
 (<https://spdx.org/licenses/LLVM-exception.html>).
+
+---
+
+## Appendix E. SIL Open Font License 1.1
+
+Applies to the Inter and Source Serif 4 font binaries redistributed in the application
+installer and the website build (see §2.1). Reproduced in full as clause 1 of the license
+requires.
+
+```
+-----------------------------------------------------------
+SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007
+-----------------------------------------------------------
+
+PREAMBLE
+The goals of the Open Font License (OFL) are to stimulate worldwide
+development of collaborative font projects, to support the font creation
+efforts of academic and linguistic communities, and to provide a free and
+open framework in which fonts may be shared and improved in partnership
+with others.
+
+The OFL allows the licensed fonts to be used, studied, modified and
+redistributed freely as long as they are not sold by themselves. The
+fonts, including any derivative works, can be bundled, embedded,
+redistributed and/or sold with any software provided that any reserved
+names are not used by derivative works. The fonts and derivatives,
+however, cannot be released under any other type of license. The
+requirement for fonts to remain under this license does not apply
+to any document created using the fonts or their derivatives.
+
+DEFINITIONS
+"Font Software" refers to the set of files released by the Copyright
+Holder(s) under this license and clearly marked as such. This may
+include source files, build scripts and documentation.
+
+"Reserved Font Name" refers to any names specified as such after the
+copyright statement(s).
+
+"Original Version" refers to the collection of Font Software components as
+distributed by the Copyright Holder(s).
+
+"Modified Version" refers to any derivative made by adding to, deleting,
+or substituting -- in part or in whole -- any of the components of the
+Original Version, by changing formats or by porting the Font Software to a
+new environment.
+
+"Author" refers to any designer, engineer, programmer, technical
+writer or other person who contributed to the Font Software.
+
+PERMISSION & CONDITIONS
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of the Font Software, to use, study, copy, merge, embed, modify,
+redistribute, and sell modified and unmodified copies of the Font
+Software, subject to the following conditions:
+
+1) Neither the Font Software nor any of its individual components,
+in Original or Modified Versions, may be sold by itself.
+
+2) Original or Modified Versions of the Font Software may be bundled,
+redistributed and/or sold with any software, provided that each copy
+contains the above copyright notice and this license. These can be
+included either as stand-alone text files, human-readable headers or
+in the appropriate machine-readable metadata fields within text or
+binary files as long as those fields can be easily viewed by the user.
+
+3) No Modified Version of the Font Software may use the Reserved Font
+Name(s) unless explicit written permission is granted by the corresponding
+Copyright Holder. This restriction only applies to the primary font name as
+presented to the users.
+
+4) The name(s) of the Copyright Holder(s) or the Author(s) of the Font
+Software shall not be used to promote, endorse or advertise any
+Modified Version, except to acknowledge the contribution(s) of the
+Copyright Holder(s) and the Author(s) or with their explicit written
+permission.
+
+5) The Font Software, modified or unmodified, in part or in whole,
+must be distributed entirely under this license, and must not be
+distributed under any other license. The requirement for fonts to
+remain under this license does not apply to any document created
+using the Font Software.
+
+TERMINATION
+This license becomes null and void if any of the above conditions are
+not met.
+
+DISCLAIMER
+THE FONT SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO ANY WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT
+OF COPYRIGHT, PATENT, TRADEMARK, OR OTHER RIGHT. IN NO EVENT SHALL THE
+COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+INCLUDING ANY GENERAL, SPECIAL, INDIRECT, INCIDENTAL, OR CONSEQUENTIAL
+DAMAGES, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
+OTHER DEALINGS IN THE FONT SOFTWARE.
+```
