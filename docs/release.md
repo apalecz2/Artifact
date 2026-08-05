@@ -26,7 +26,8 @@ Verified 2026-07-27 (GitHub API + HTTP checks against the live site).
 | **Releases** | **Public on GitHub Releases**: `v0.1.0` and `v0.1.1` (2026-06-23), `v0.2.0` (2026-07-24). All three are flagged **pre-release**. |
 | **Release automation** | [`.github/workflows/release.yml`](../.github/workflows/release.yml) — tag-triggered (`v*`) or manual; builds **Windows** + **macOS universal** via `tauri-action` and publishes a **draft** release. |
 | **v0.2.0 artifacts** | `Anchor_0.2.0_x64-setup.exe` (6.8 MB, NSIS), `Anchor_0.2.0_x64_en-US.msi` (9.9 MB), `Anchor_0.2.0_universal.dmg` (20.1 MB), `Anchor_universal.app.tar.gz` (20 MB). |
-| **Versioning** | `productName: "Anchor"`, `version: 0.2.0` in [tauri.conf.json](../app/src-tauri/tauri.conf.json); `app/package.json` matches and carries `author`/`description`/`license: Elastic-2.0`. |
+| **Versioning** | `productName: "Anchor"`, `version: 0.3.0` in [tauri.conf.json](../app/src-tauri/tauri.conf.json); `app/package.json` and `app/src-tauri/Cargo.toml` match and carry `author`/`description`/`license: Elastic-2.0`. Five files hold the version — §4.1. |
+| **Executable name** | `Anchor.exe`, from the `[[bin]] name` in [Cargo.toml](../app/src-tauri/Cargo.toml) — **not** from `productName`. Renamed for 0.3.0: the package was called `app`, so v0.1.x–v0.2.0 installed as `app.exe` (`%LOCALAPPDATA%\Anchor\app.exe`). Existing installs get the new name via the NSIS uninstall-then-install upgrade; pinned shortcuts to the old path break and need re-pinning. |
 | **Code signing** | ❌ **None on either platform.** No Authenticode/Azure Trusted Signing, no Apple Developer ID, no notarization, no `entitlements.plist`. The site says "Unsigned for now" on both download cards. |
 | **Microsoft Store** | ❌ Not started — no Partner Center account, no reserved name, no MSIX packaging. Website leaves the Store link empty by design. |
 | **Legal/compliance** | ✅ Audited and remediated 2026-08-04 ([legal-audit-2026-08-04.md](legal-audit-2026-08-04.md), inventory in [compliance-documents.md](compliance-documents.md)): `LICENSE` (Elastic-2.0), `NOTICES.md` (CUDA runtime, bundled fonts under OFL-1.1/Apache-2.0, §3 reconciled name+version against `cargo metadata`), `SECURITY.md`, `PRIVACY.md` + `EULA.md` published on the site, first-run clickwrap gate with a durable AppData consent record, in-app legal viewer, Qwen verified Apache-2.0 for R2 redistribution. EULA now carries indemnity, pre-release, capacity, and limitation-of-actions clauses. **Remaining exposure is structural, not textual: Anchor is published by an individual, so there is no corporate veil** — incorporate before charging for Paid Features. |
@@ -139,7 +140,7 @@ Store becomes about reach and install UX — that's fine, but it means the Store
 optional rather than the only affordable path.
 
 ### N7 — Housekeeping
-- [ ] Point the local `origin` remote at the renamed repo (§8).
+- [x] Point the local `origin` remote at the renamed repo (§8). *(done)*
 - [ ] Decide whether to keep publishing the `.app.tar.gz` updater artifact (unused without a
       configured updater) or drop it from the release.
 - [ ] Consider an in-app update check (Tauri updater, or a version ping against the GitHub
@@ -149,12 +150,20 @@ optional rather than the only affordable path.
 
 ## 4. Cutting a release (current process)
 
-1. **Bump the version in both places** — they must match, and the tag must match them:
-   - [`app/src-tauri/tauri.conf.json`](../app/src-tauri/tauri.conf.json) → `version`
-   - [`app/package.json`](../app/package.json) → `version`
+1. **Bump the version in all five places** — they must match, and the tag must match them:
 
-   The installer filenames come from the Tauri config version, so a mismatch produces
-   artifacts that disagree with the tag.
+   | File | How |
+   |---|---|
+   | [`app/src-tauri/tauri.conf.json`](../app/src-tauri/tauri.conf.json) → `version` | by hand — **authoritative** |
+   | [`app/package.json`](../app/package.json) → `version` | by hand |
+   | [`app/src-tauri/Cargo.toml`](../app/src-tauri/Cargo.toml) → `[package] version` | by hand |
+   | `app/src-tauri/Cargo.lock` (the `anchor` entry) | `cargo check` regenerates it |
+   | `app/package-lock.json` (both `version` keys) | `npm install --package-lock-only` regenerates it |
+
+   The installer filenames and the version the About screen shows (`getVersion()`) both come
+   from the **Tauri config** version, so a mismatch produces artifacts that disagree with the
+   tag. The two lockfiles don't affect the build, but leaving them stale makes the release
+   commit lie about what was built — and a later `cargo`/`npm` run will dirty the tree.
 
 2. **Sanity-check locally** (CI covers this on PRs, but before a tag):
    ```bash
@@ -292,7 +301,9 @@ Two facts shape the whole effort:
 2. **Tooling:** Windows 10/11 SDK (`makeappx`, `makepri`, `signtool`).
 3. **Build unpackaged:** `cd app && npm run tauri build`, then stage
    `app/src-tauri/target/release/` (the `Anchor.exe` + DLLs/resources — *not* the
-   NSIS/MSI output).
+   NSIS/MSI output). The exe name comes from the `[[bin]] name` in `Cargo.toml`; it must
+   equal the manifest's `Executable=` below, and a `target/` dir carrying a stale `app.exe`
+   from before the 0.3.0 rename should be cleaned first so the wrong binary can't be staged.
 4. **Author `AppxManifest.xml`** next to the staged binaries:
 
 ```xml
@@ -460,9 +471,10 @@ install/uninstall/path checks stay manual.
 
 ## 8. Repo rename note
 
-The repository is now `apalecz2/anchor`; the working copy's `origin` still points at
-`https://github.com/apalecz2/DataExtractionAI.git` and only works through GitHub's
-permanent redirect. The website and all published links already use the new name. Fix with:
+The repository is now `apalecz2/anchor`, and ✅ the working copy's `origin` now points at
+`https://github.com/apalecz2/anchor.git` (verified 2026-08-05) rather than relying on
+GitHub's permanent redirect from the old `DataExtractionAI` URL. The website and all
+published links already use the new name. If a clone still has the old remote:
 
 ```bash
 git remote set-url origin https://github.com/apalecz2/anchor.git

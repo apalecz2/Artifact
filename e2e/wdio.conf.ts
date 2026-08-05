@@ -24,7 +24,7 @@ const APP_BINARY =
         'src-tauri',
         'target',
         'release',
-        process.platform === 'win32' ? 'app.exe' : 'app',
+        process.platform === 'win32' ? 'Anchor.exe' : 'Anchor',
     );
 
 let tauriDriver: ChildProcess | undefined;
