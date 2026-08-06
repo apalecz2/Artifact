@@ -2,7 +2,7 @@
 
 A desktop application for extracting structured data from non-machine-readable documents (scanned PDFs, photos, image-based tables) with zero API cost and no data leaving the machine using local AI. Supported platforms: Windows 10 (22H2+) or 11, and macOS on Apple Silicon (Intel Macs are not supported).
 
-![Anchor: source document with OCR overlay next to the extracted, confidence-scored table](docs/images/anchor-source-and-table.png)
+![Anchor: source document with OCR overlay next to the extracted, confidence-scored table](docs/images/anchor-demo.gif)
 
 ## How It Works
 
